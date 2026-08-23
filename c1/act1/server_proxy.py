@@ -66,12 +66,27 @@ def receive_full_server_http_message(connection_socket, buff_size):
 def split_head_and_body(http_message: bytes):
     return http_message.split(b"\r\n\r\n")
 
+def get_domain(start_line):
+    splited_start_line = start_line.split(" ")
+    domain = splited_start_line[1].split("//", maxsplit=1)[1]
+    return domain
 
-def check_forbidden(domain):
-    return
+def check_forbidden(domain, json_file):
+    with open(f"{json_file}.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    list_of_forbidden_sites = data["blocked"]
+    if domain in list_of_forbidden_sites:
+        return True
+    return False
 
 def create_forbidden_http():
-    return
+    http_message = "HTTP/1.1 403 Forbidden\r\n"
+    body_message = "<html><body><img src='all_in.jpg'></body></html>"
+    http_message += "Content-Length: " + str(len(body_message.encode())) + "\r\n"
+    http_message += "Content-Type: text/html\r\n\r\n"
+    http_message += body_message
+    return http_message.encode()
 
 
 #def get_content_length(message, end_sequence):
@@ -155,6 +170,15 @@ if __name__ == "__main__":
         
         recv_message = receive_full_client_http_message(client_proxy_socket, buff_size)
         parsed_message = parse_HTTP_message(recv_message)
+        domain = get_domain(parsed_message["start line"])
+
+        if check_forbidden(domain, "config"):
+            print(f" -> Se ha recibido un mensaje de un sitio bloqueado: {domain}")
+            forbidden_message = create_forbidden_http()
+            client_proxy_socket.send(forbidden_message)
+            client_proxy_socket.close()
+            print(f"conexión con {client_proxy_socket_address} ha sido cerrada")
+            continue
 
         print(f' -> Se ha recibido el siguiente mensaje: {recv_message}')
         # crear conexión con el server
