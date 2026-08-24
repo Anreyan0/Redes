@@ -1,7 +1,7 @@
 import socket
 import json
 import sys
-
+import base64
 
 # esta función se encarga de recibir el mensaje completo desde el cliente
 # en caso de que el mensaje sea más grande que el tamaño del buffer 'buff_size', esta función va esperar a que
@@ -68,7 +68,7 @@ def split_head_and_body(http_message: bytes):
 
 def get_domain(start_line):
     splited_start_line = start_line.split(" ")
-    domain = splited_start_line[1].split("//", maxsplit=1)[1]
+    domain = splited_start_line[1].split("//", maxsplit=1)[1].strip("/")
     return domain
 
 def check_forbidden(domain, json_file):
@@ -81,12 +81,30 @@ def check_forbidden(domain, json_file):
     return False
 
 def create_forbidden_http():
+    with open("all_in.jpg", "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
     http_message = "HTTP/1.1 403 Forbidden\r\n"
-    body_message = "<html><body><img src='all_in.jpg'></body></html>"
+    body_message = f"<!DOCTYPE html><html><body><img src='data:image/jpeg;base64,{encoded_string}' alt='Imagen Local'></body></html>"
     http_message += "Content-Length: " + str(len(body_message.encode())) + "\r\n"
     http_message += "Content-Type: text/html\r\n\r\n"
     http_message += body_message
     return http_message.encode()
+
+
+def replace_forbidden_words(server_response, json_file):
+    with open(f"{json_file}.json", "r", encoding="utf-8") as file:
+            data = json.load(file)
+    
+    forbidden_words = data["forbidden_words"]
+    message_as_list = split_head_and_body(server_response)
+    head = message_as_list[0]
+    html = message_as_list[1]
+    for dicts in forbidden_words:
+        for key, value in dicts.items():
+            replacement = value.encode()
+            html = html.replace(key.encode(), replacement)
+
+    return head + b"\r\n\r\n" + html
 
 
 #def get_content_length(message, end_sequence):
@@ -109,15 +127,16 @@ def parse_HTTP_message(http_message: bytes):
 
 def create_HTTP_message(http_dict: dict):
     http_message = ""
-    start_line = "HTTP/1.1 200 OK\r\n"
-    html = "<html><body><h1>Hola mundo</h1></body></html>"
-    html_length = len(html.encode())
-    http_message += start_line
-    http_message += "Content-Type: " + http_dict["Accept"] + "\r\n"
-    http_message += "Content-Length: " + str(html_length) + "\r\n"
-    # http_message += f"X-ElQuePregunta: {http_dict["json_name"]}\r\n\r\n"
-    http_message += html
-    # for key, value in http_dict.items():
+    #start_line = "HTTP/1.1 200 OK\r\n"
+    #html = "<html><body><h1>Hola mundo</h1></body></html>"
+    #html_length = len(html.encode())
+    http_message += http_dict["start line"] + "\r\n"
+    http_message += "Accept: " + http_dict["Accept"] + "\r\n"
+    http_message += "Host: " + http_dict["Host"] + "\r\n"
+    http_message += "X-ElQuePregunta: Mania\r\n\r\n"
+    #http_message += "Content-Length: " + str(html_length) + "\r\n\r\n"
+    #http_message += html f
+    # for key, value in http_dict.items(): fedw
     #    http_message += f"{key}: {value}\r\n"
     # http_message += "\r\n"
 
@@ -171,6 +190,7 @@ if __name__ == "__main__":
         recv_message = receive_full_client_http_message(client_proxy_socket, buff_size)
         parsed_message = parse_HTTP_message(recv_message)
         domain = get_domain(parsed_message["start line"])
+        print(f"\n{domain}\n")
 
         if check_forbidden(domain, "config"):
             print(f" -> Se ha recibido un mensaje de un sitio bloqueado: {domain}")
@@ -179,10 +199,12 @@ if __name__ == "__main__":
             client_proxy_socket.close()
             print(f"conexión con {client_proxy_socket_address} ha sido cerrada")
             continue
+            
 
         print(f' -> Se ha recibido el siguiente mensaje: {recv_message}')
         # crear conexión con el server
         server_connection_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # print(f"{parsed_message['Host']}")
         server_connection_socket.connect((parsed_message["Host"], 80))
 
         # luego recibimos el mensaje usando la función que programamos
@@ -191,14 +213,21 @@ if __name__ == "__main__":
 
         # respondemos indicando que recibimos el mensaje
         response_message = add_name_to_header(recv_message)
+
+        print(f' Se ha creado la siguiente respuesta al server: {response_message}')
  
-        server_connection_socket.send(recv_message)
+        server_connection_socket.send(response_message)
 
         server_response = receive_full_server_http_message(server_connection_socket, buff_size)
 
         print(f' <- Se ha recibido el siguiente mensaje del server: {server_response}')
+
+        response_without_forbidden_words = replace_forbidden_words(server_response, "config")
+        if response_without_forbidden_words != server_response:
+            print(f' <- Se han modificado las palabras prohibidas de la respuesta del server: {response_without_forbidden_words}')
+
         # el mensaje debe pasarse a bytes antes de ser enviado, para ello usamos encode
-        client_proxy_socket.send(server_response)
+        client_proxy_socket.send(response_without_forbidden_words)
  
         # cerramos la conexión
         # notar que la dirección que se imprime indica un número de puerto distinto al 5000
