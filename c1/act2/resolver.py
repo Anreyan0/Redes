@@ -1,6 +1,6 @@
 import binascii
 import socket
-
+import sys
 
 def send_dns_message(address, port):
     # Encabezado con ID 0 (00 00 en hexadecimal), preguntamos por example.com
@@ -147,18 +147,25 @@ def get_ip(type, rddata):
 
 id = 0
 def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
+    global id
     # Creamos un socket UDP
-    buff_size = 2048
+    buff_size = 65536
     new_socket_address = (ip_addr, 53)
-    socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #consulta, _ = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
+    #print(f"Creando socket para conectar al servidor raíz - Resolver")
     try:
         # Conectamos el socket
+        socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #if debug:
+            #if ip_addr == '198.41.0.4'
+                #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
+            #else:
+                #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOU"]}"]} con dirección IP '{ip_addr}'")
         socket_root.connect(new_socket_address)
         socket_root.sendto(mensaje_consulta, new_socket_address)
         # Recibimos el mensaje de respuesta
+        #print("Mensaje recibido del servidor")
         data, _ = socket_root.recvfrom(buff_size)
-        # Parseamos el mensaje
-        info = pars_msg(binascii.hexlify(data).decode("utf-8"))
 
         while True:
             info = pars_msg(binascii.hexlify(data).decode("utf-8"))
@@ -176,32 +183,44 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     for i in range(info["ARCOUNT"]):
                         if info[f"ADDITIONALTYPE{i}"] == 1:
                             # Si hay A en ADDITIONAL, devolvemos los datos con la ip en ADDITIONAL
+                            #if debug:
+                                #print(f"(debug) Consultando '{info[f'QNAME{i}']}' a '{info[f'ADDITIONALNAME{i}']}' con dirección IP {info[f'ADDITIONALRDDATA{i}']}")
                             return resolver(mensaje_consulta, info[f"ADDITIONALRDDATA{i}"])
             # Resolvemos sobre el NS, buscando su ip
             if name_servers:
                 id += 1
+
                 id_hex = str(id.to_bytes(2, byteorder='big').hex())
                 header_sin_id = "00 00 00 01 00 00 00 00 00 00 ".replace(" ","")
                 header = id_hex + header_sin_id
                 name_splited = name_servers[0].split(".")
+                question = ''
                 for i in range(len(name_splited)):
-                    question = f"{len(name_splited[i]).hex()}" + name_splited[i].hex()
-                question += "00 00 01 00 01".replace(" ", "")
+                    # Extraemos el largo de cada palabra, la pasamos a bytes, calculamos los bytes necesarios para la transformación
+                    # Lo transformamos en hexadecimal
+                    question = f"{str(len(name_splited[i]).to_bytes((len(name_splited[i]).bit_length() + 7) // 8, byteorder="big").hex())}" + name_splited[i].encode('utf-8').hex()
+                    # Acumulamos la pregunta
+                    header += question
+                # Añadimos el type y class de la sección Question
+                header += "00 00 01 00 01".replace(" ", "")
 
-                nuevo_mensaje = binascii.unhexlify(header+ question)
+                # Lo transformamos al formato correcto
+                nuevo_mensaje = binascii.unhexlify(header)
+                # Consultamos con el resolver para resolver la IP del NS
                 nueva_respuesta = resolver(nuevo_mensaje)
+
                 info_nuevo_msg = pars_msg(binascii.hexlify(nueva_respuesta).decode("utf-8"))
                 for i in range(info_nuevo_msg["ANCOUNT"]):
                     if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
                         nueva_ip = info_nuevo_msg[f"ANSWERRDDATA{i}"]
                         break
 
-                data = resolver(data, ip_addr=nueva_ip)
+                data = resolver(mensaje_consulta, ip_addr=nueva_ip)
                 # se reinicia el ciclo
 
     finally:
+        id=0
         socket_root.close()
-        id = 0
 
 def pars_question(msg):
     parser = dict()
@@ -227,8 +246,13 @@ def pars_question(msg):
 # print(bytes.fromhex("636f6d").decode("utf-8")) = com
 msg_cloudflare = "000080800001000200000000076578616d706c6503636f6d0000010001c00c000100010000000500046814179ac00c00010001000000050004ac4293f3"
 msg_google = "000080820001000000000000076578616d706c6503636f6d0000010001"
+debug = False
 
 if __name__ == "__main__":
+    #if sys.argc < 2:
+    #    print("No se ha especificado el modo de debug, se ejecutará en modo normal")
+    #elif sys.argv[1] == "1":
+    #    debug = True
 
     buff_size = 2048
     end_of_message = "\n"
@@ -246,6 +270,7 @@ if __name__ == "__main__":
         recv_message, address = server_socket.recvfrom(buff_size)
 
         print(f"Se ha recibido con éxito el mensaje para el resolver: {recv_message}\n")
+
         respuesta = resolver(recv_message)
         if respuesta:
             print(f"Se ha resolvido la petición con éxito: {respuesta}\n")
