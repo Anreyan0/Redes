@@ -25,6 +25,11 @@ def send_dns_message(address, port):
 def get_name(msg, offset):
     name = []
     while msg[offset: offset +2] != "00":
+        if int(msg[offset: offset + 2], 16) >= int("C0", 16):
+            # Si el primer byte es 11, significa que es un puntero
+            # Hacemos una mascara del offset con 0x3FFF que es 0011 1111 1111 1111 en binario
+            name.append(get_name(msg, (int(msg[offset:offset + 4], 16) & 0x3FFF) * 2)[0])
+            return ".".join(name), offset + 4
         # Extraemos el largo
         largo = int(msg[offset:offset + 2], 16)
         # Extraemos el dominio y lo enviamos a la lista del dominio para su construccion
@@ -62,7 +67,10 @@ def get_rr(msg, offset, count):
             else:
                 rr.append(get_name(msg, offset + 20)[0])
         else:
-            rr.append(int(msg[offset + 20: offset + 20 + (2 * rr[4])], 16))
+            if rr[4] != 0:
+                rr.append(int(msg[offset + 20: offset + 20 + (2 * rr[4])], 16))
+            else:
+                rr.append(0)
 
         rr_list.append(rr)
         # Actualizamos el offset según lo recorrido y lo que indique rdlength para seguir iterando
@@ -95,7 +103,6 @@ def pars_msg(msg):
         rr, offset = get_rr(msg, offset, parser["ANCOUNT"])
         # Iteramos por respuesta que haya (entregado como rr's)
         for nAnswer in range(parser["ANCOUNT"]):
-
             parser[f"ANSWERNAME{nAnswer}"] = rr[nAnswer][0]
             parser[f"ANSWERTYPE{nAnswer}"] = rr[nAnswer][1]
             parser[f"ANSWERCLASS{nAnswer}"] = rr[nAnswer][2]
@@ -105,23 +112,23 @@ def pars_msg(msg):
 
     if parser["NSCOUNT"] > 0:
         auth, offset = get_rr(msg, offset, parser["NSCOUNT"])
-        for authority in auth:
-            parser["AUTHORITYNAME"] = authority[0] 
-            parser["AUTHORITYTYPE"] = authority[1] 
-            parser["AUTHORITYCLASS"] = authority[2] 
-            parser["AUTHORITYTTL"] = authority[3] 
-            parser["AUTHORITYRDLENGTH"] = authority[4] 
-            parser["AUTHORITYRDDATA"] = authority[5]
+        for nAuth in range(parser["NSCOUNT"]):
+            parser[f"AUTHORITYNAME{nAuth}"] = auth[nAuth][0] 
+            parser[f"AUTHORITYTYPE{nAuth}"] = auth[nAuth][1] 
+            parser[f"AUTHORITYCLASS{nAuth}"] = auth[nAuth][2] 
+            parser[f"AUTHORITYTTL{nAuth}"] = auth[nAuth][3] 
+            parser[f"AUTHORITYRDLENGTH{nAuth}"] = auth[nAuth][4] 
+            parser[f"AUTHORITYRDDATA{nAuth}"] = auth[nAuth][5]
             
     if parser["ARCOUNT"] > 0:
         add, offset = get_rr(msg, offset, parser["ARCOUNT"])
-        for additional in add:
-            parser["ADDITIONALNAME"] = additional[0] 
-            parser["ADDITIONALTYPE"] = additional[1] 
-            parser["ADDITIONALCLASS"] = additional[2] 
-            parser["ADDITIONALTTL"] = additional[3] 
-            parser["ADDITIONALRDLENGTH"] = additional[4] 
-            parser["ADDITIONALRDDATA"] = additional[5] 
+        for nAdd in range(parser["ARCOUNT"]):
+            parser[f"ADDITIONALNAME{nAdd}"] = add[nAdd][0]
+            parser[f"ADDITIONALTYPE{nAdd}"] = add[nAdd][1] 
+            parser[f"ADDITIONALCLASS{nAdd}"] = add[nAdd][2] 
+            parser[f"ADDITIONALTTL{nAdd}"] = add[nAdd][3] 
+            parser[f"ADDITIONALRDLENGTH{nAdd}"] = add[nAdd][4] 
+            parser[f"ADDITIONALRDDATA{nAdd}"] = add[nAdd][5] 
     
     return parser
 
@@ -138,27 +145,63 @@ def get_ip(type, rddata):
         return ":".join(ip)
     return ""
 
-def resolver(mensaje_consulta: bytes, ip_addr):
+id = 0
+def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
+    # Creamos un socket UDP
     buff_size = 2048
     new_socket_address = (ip_addr, 53)
-    socket_client  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        socket_client.connect(new_socket_address)
-        socket_client.sendto(mensaje_consulta, new_socket_address)
-        data, _ = socket_client.recvfrom(buff_size)
-
+        # Conectamos el socket
+        socket_root.connect(new_socket_address)
+        socket_root.sendto(mensaje_consulta, new_socket_address)
+        # Recibimos el mensaje de respuesta
+        data, _ = socket_root.recvfrom(buff_size)
+        # Parseamos el mensaje
         info = pars_msg(binascii.hexlify(data).decode("utf-8"))
-        if info[f"ANSWERRDDATA{info["ANCOUNT"] - 1}"] == 1:
-            return data
-        elif info["AUTHORITYRDDATA"] == 2:
-            if info["ADDITIONALRDDATA"] == 1:
-                return resolver(mensaje_consulta, info["ADDITIONALRDDATA"])
-            else:
-                pass
+
+        while True:
+            info = pars_msg(binascii.hexlify(data).decode("utf-8"))
+            # Ahora nos dividimos según el caso
+            # Si es hay una respuesta de tipo A dentro de la sección Answer, devolvemos los datos
+            for i in range(info["ANCOUNT"]):
+                if info[f"ANSWERTYPE{i}"] == 1:
+                    return data
+            # Si no hay respuestas de tipo A, revisamos si hay NS en AUTHORITY
+            name_servers = []
+            for i in range(info["NSCOUNT"]):
+                if info[f"AUTHORITYTYPE{i}"] == 2:
+                    name_servers.append(info[f"AUTHORITYRDDATA{i}"])
+                    # Si hay NS, revisamos si hay A en ADDITIONAL
+                    for i in range(info["ARCOUNT"]):
+                        if info[f"ADDITIONALTYPE{i}"] == 1:
+                            # Si hay A en ADDITIONAL, devolvemos los datos con la ip en ADDITIONAL
+                            return resolver(mensaje_consulta, info[f"ADDITIONALRDDATA{i}"])
+            # Resolvemos sobre el NS, buscando su ip
+            if name_servers:
+                id += 1
+                id_hex = str(id.to_bytes(2, byteorder='big').hex())
+                header_sin_id = "00 00 00 01 00 00 00 00 00 00 ".replace(" ","")
+                header = id_hex + header_sin_id
+                name_splited = name_servers[0].split(".")
+                for i in range(len(name_splited)):
+                    question = f"{len(name_splited[i]).hex()}" + name_splited[i].hex()
+                question += "00 00 01 00 01".replace(" ", "")
+
+                nuevo_mensaje = binascii.unhexlify(header+ question)
+                nueva_respuesta = resolver(nuevo_mensaje)
+                info_nuevo_msg = pars_msg(binascii.hexlify(nueva_respuesta).decode("utf-8"))
+                for i in range(info_nuevo_msg["ANCOUNT"]):
+                    if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
+                        nueva_ip = info_nuevo_msg[f"ANSWERRDDATA{i}"]
+                        break
+
+                data = resolver(data, ip_addr=nueva_ip)
+                # se reinicia el ciclo
 
     finally:
-        socket_client.close()
-    pass
+        socket_root.close()
+        id = 0
 
 def pars_question(msg):
     parser = dict()
@@ -189,7 +232,7 @@ if __name__ == "__main__":
 
     buff_size = 2048
     end_of_message = "\n"
-    new_socket_address = ("localhost", 8000)
+    new_socket_address = ("10.0.2.15", 8000)
 
     print("Creando socket - Servidor")
 
@@ -202,11 +245,16 @@ if __name__ == "__main__":
     while True:
         recv_message, address = server_socket.recvfrom(buff_size)
 
-        print(f"Se ha recibido con éxito el mensaje: {recv_message}\n")
-        hex_message = recv_message.hex()
-        print(f"Mensaje recibido parseado: {pars_msg(hex_message)}\n")
+        print(f"Se ha recibido con éxito el mensaje para el resolver: {recv_message}\n")
+        respuesta = resolver(recv_message)
+        if respuesta:
+            print(f"Se ha resolvido la petición con éxito: {respuesta}\n")
+            print("Mandando resolución al cliente\n")
 
-        response_message = f"Se ha recibido con éxito el mensaje {recv_message}"
+            server_socket.sendto(respuesta, address)
 
-        server_socket.sendto(response_message.encode(), address)
+            print("Respuesta mandada. Esperando nuevos mensajes\n")
+        else:
+            print("Respuesta vacia. No se mandó nada")
 
+        print("---------------------------------------------------------------\n")
