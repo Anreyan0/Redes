@@ -145,26 +145,57 @@ def get_ip(type, rddata):
         return ":".join(ip)
     return ""
 
+def get_name_server(ip_addr):
+    new_address = (ip_addr, 53)
+    ns_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ns_socket.connect(new_address)
+    
+    header = "00 43 00 00 00 01 00 00 00 00 00 00 ".replace(" ","")
+    full_address = str(ip_addr) + ".in-addr.arpa"
+    address_splitted = full_address.split(".")
+
+    question = ''
+    for i in range(len(address_splitted)):
+        # Extraemos el largo de cada palabra, la pasamos a bytes, calculamos los bytes necesarios para la transformación
+        # Lo transformamos en hexadecimal
+        question = f"{str(len(address_splitted[i]).to_bytes((len(address_splitted[i]).bit_length() + 7) // 8, byteorder="big").hex())}" + address_splitted[i].encode('utf-8').hex()
+        # Acumulamos la pregunta
+        header += question
+    header += "00 00 02 00 01".replace(" ", "")
+    # Lo transformamos al formato correcto
+    nuevo_mensaje = binascii.unhexlify(header)
+    # Consultamos con el resolver para resolver la IP del NS
+    ns_socket.sendto(nuevo_mensaje, new_address)
+    data, _ = ns_socket.recvfrom(65536)
+
+    info_nuevo_msg = pars_msg(binascii.hexlify(data).decode("utf-8"))
+    for i in range(info_nuevo_msg["ANCOUNT"]):
+        if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
+            name_server = info_nuevo_msg[f"ANSWERRDDATA{i}"]
+            break
+    return name_server
+
+
 id = 0
 def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
     global id
     # Creamos un socket UDP
     buff_size = 65536
     new_socket_address = (ip_addr, 53)
-    #consulta, _ = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
-    #print(f"Creando socket para conectar al servidor raíz - Resolver")
+    consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
+    print(f"Creando socket para conectar al servidor raíz - Resolver")
     try:
         # Conectamos el socket
         socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        #if debug:
-            #if ip_addr == '198.41.0.4'
-                #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
-            #else:
-                #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOU"]}"]} con dirección IP '{ip_addr}'")
+        if debug:
+            if ip_addr == '198.41.0.4':
+                print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
+            else:
+                print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
         socket_root.connect(new_socket_address)
         socket_root.sendto(mensaje_consulta, new_socket_address)
         # Recibimos el mensaje de respuesta
-        #print("Mensaje recibido del servidor")
+        print("Mensaje recibido del servidor")
         data, _ = socket_root.recvfrom(buff_size)
 
         while True:
@@ -183,8 +214,7 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     for i in range(info["ARCOUNT"]):
                         if info[f"ADDITIONALTYPE{i}"] == 1:
                             # Si hay A en ADDITIONAL, devolvemos los datos con la ip en ADDITIONAL
-                            #if debug:
-                                #print(f"(debug) Consultando '{info[f'QNAME{i}']}' a '{info[f'ADDITIONALNAME{i}']}' con dirección IP {info[f'ADDITIONALRDDATA{i}']}")
+                            #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {info[f"AUTHORITYNAME{info["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
                             return resolver(mensaje_consulta, info[f"ADDITIONALRDDATA{i}"])
             # Resolvemos sobre el NS, buscando su ip
             if name_servers:
@@ -214,7 +244,8 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
                         nueva_ip = info_nuevo_msg[f"ANSWERRDDATA{i}"]
                         break
-
+                #if debug:
+                    #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '{".".join(name_servers)}' con dirección IP {nueva_ip}")
                 data = resolver(mensaje_consulta, ip_addr=nueva_ip)
                 # se reinicia el ciclo
 
@@ -249,10 +280,10 @@ msg_google = "000080820001000000000000076578616d706c6503636f6d0000010001"
 debug = False
 
 if __name__ == "__main__":
-    #if sys.argc < 2:
-    #    print("No se ha especificado el modo de debug, se ejecutará en modo normal")
-    #elif sys.argv[1] == "1":
-    #    debug = True
+    if len(sys.argv) < 2:
+        print("No se ha especificado el modo de debug, se ejecutará en modo normal")
+    elif sys.argv[1] == "1":
+        debug = True
 
     buff_size = 2048
     end_of_message = "\n"
