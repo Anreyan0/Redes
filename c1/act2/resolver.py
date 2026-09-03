@@ -61,6 +61,8 @@ def get_rr(msg, offset, count):
                 rr.append(get_name(msg, int(msg[offset + 20:offset + 24], 16) & 0x3FFF)[0])
             else:
                 rr.append(get_name(msg, offset + 20)[0])
+        else:
+            rr.append(int(msg[offset + 20: offset + 20 + (2 * rr[4])], 16))
 
         rr_list.append(rr)
         # Actualizamos el offset según lo recorrido y lo que indique rdlength para seguir iterando
@@ -110,7 +112,7 @@ def pars_msg(msg):
             parser["AUTHORITYTTL"] = authority[3] 
             parser["AUTHORITYRDLENGTH"] = authority[4] 
             parser["AUTHORITYRDDATA"] = authority[5]
-
+            
     if parser["ARCOUNT"] > 0:
         add, offset = get_rr(msg, offset, parser["ARCOUNT"])
         for additional in add:
@@ -179,11 +181,9 @@ def pars_question(msg):
 
 
 #msg = send_dns_message("8.8.4.4", 53)
-print(bytes.fromhex("636f6d").decode("utf-8"))
+# print(bytes.fromhex("636f6d").decode("utf-8")) = com
 msg_cloudflare = "000080800001000200000000076578616d706c6503636f6d0000010001c00c000100010000000500046814179ac00c00010001000000050004ac4293f3"
 msg_google = "000080820001000000000000076578616d706c6503636f6d0000010001"
-print(f"{msg_cloudflare}\n")
-print(pars_msg(msg_cloudflare))
 
 if __name__ == "__main__":
 
@@ -202,7 +202,9 @@ if __name__ == "__main__":
     while True:
         recv_message, address = server_socket.recvfrom(buff_size)
 
-        print(f"Se ha recibido con éxito el mensaje {recv_message}")
+        print(f"Se ha recibido con éxito el mensaje: {recv_message}\n")
+        hex_message = recv_message.hex()
+        print(f"Mensaje recibido parseado: {pars_msg(hex_message)}\n")
 
         response_message = f"Se ha recibido con éxito el mensaje {recv_message}"
 
