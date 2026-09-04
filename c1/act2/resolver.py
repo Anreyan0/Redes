@@ -182,16 +182,16 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
     # Creamos un socket UDP
     buff_size = 65536
     new_socket_address = (ip_addr, 53)
-    consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
+    # consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
     print(f"Creando socket para conectar al servidor raíz - Resolver")
     try:
         # Conectamos el socket
         socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        if debug:
-            if ip_addr == '198.41.0.4':
-                print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
-            else:
-                print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
+        # if debug:
+            # if ip_addr == '198.41.0.4':
+                # print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
+            # else:
+                # print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
         socket_root.connect(new_socket_address)
         socket_root.sendto(mensaje_consulta, new_socket_address)
         # Recibimos el mensaje de respuesta
@@ -200,10 +200,19 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
 
         while True:
             info = pars_msg(binascii.hexlify(data).decode("utf-8"))
+
+            # Sección del caché. Buscamos en el diccionario el nombre de dominio
+            # for i in range(info["QDCOUNT"]):
+                # if info[f"QNAME{i}"] in cache:
+
             # Ahora nos dividimos según el caso
             # Si es hay una respuesta de tipo A dentro de la sección Answer, devolvemos los datos
             for i in range(info["ANCOUNT"]):
                 if info[f"ANSWERTYPE{i}"] == 1:
+
+                    # Cache
+                    poner_en_cache(info[f"ANSWERNAME{i}"], info[f"ANSWERRDDATA{i}"], cache)
+
                     return data
             # Si no hay respuestas de tipo A, revisamos si hay NS en AUTHORITY
             name_servers = []
@@ -273,6 +282,30 @@ def pars_question(msg):
     return parser
 
 
+def poner_en_cache(dominio, ip, dicc):
+    if dominio in dicc:
+        dicc[dominio][0] += 1
+    else:
+        dicc[dominio] = [1, ip]
+
+    # Aumentamos la frecuencia total de cache
+    dicc["frecuencia"][0] += 1
+
+    # Si pasa mas de 20 consultas, se limpia el cache
+    if dicc["frecuencia"][0] > 20:
+        dicc.clear()
+        dicc["frecuencia"] = [1, '']
+        dicc[dominio] = [1, ip]
+    else:
+        # Si no, ordenamos las llaves por frecuencia y actualizamos el dicc
+        frecuencia = dicc.pop("frecuencia")
+        dicc_ordenado = sorted(dicc.items(), key=lambda item: item[1][0], reverse=True)
+        dicc.clear()
+        dicc["frecuencia"] = frecuencia
+        dicc.update(dicc_ordenado)
+
+    return
+
 #msg = send_dns_message("8.8.4.4", 53)
 # print(bytes.fromhex("636f6d").decode("utf-8")) = com
 msg_cloudflare = "000080800001000200000000076578616d706c6503636f6d0000010001c00c000100010000000500046814179ac00c00010001000000050004ac4293f3"
@@ -295,6 +328,11 @@ if __name__ == "__main__":
 
     server_socket.bind(new_socket_address)
 
+    # Diccionario para el caché
+    # llave = nombre del dominio | valor = Lista[numero de veces accesado, ip]
+    cache = dict()
+    cache["frecuencia"] = [0, '']
+
     print("Esperando clientes")
 
     while True:
@@ -313,4 +351,5 @@ if __name__ == "__main__":
         else:
             print("Respuesta vacia. No se mandó nada")
 
+        print(cache)
         print("---------------------------------------------------------------\n")
