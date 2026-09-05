@@ -182,21 +182,24 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
     # Creamos un socket UDP
     buff_size = 65536
     new_socket_address = (ip_addr, 53)
-    # consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
-    print(f"Creando socket para conectar al servidor raíz - Resolver")
+    consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
+    dominio_consulta = consulta[f"QNAME{consulta["QDCOUNT"] - 1}"] 
+
     try:
         # Conectamos el socket
         socket_root  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # if debug:
-            # if ip_addr == '198.41.0.4':
-                # print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '.' con dirección IP '{ip_addr}'")
-            # else:
-                # print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {consulta[f"AUTHORITYNAME{consulta["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
         socket_root.connect(new_socket_address)
         socket_root.sendto(mensaje_consulta, new_socket_address)
         # Recibimos el mensaje de respuesta
-        print("Mensaje recibido del servidor")
+        if debug:
+            if ip_addr == '198.41.0.4':
+                print(f"(debug) Creando socket para conectar al servidor de ip: {ip_addr} - Resolver")
+                print(f"(debug) Consultando '{dominio_consulta}' a '.' con dirección ip '{ip_addr}'")
+                print(f"(debug) --> Redirigiendo\n")
+
         data, _ = socket_root.recvfrom(buff_size)
+        if debug:
+            print("(debug) <-- Mensaje recibido del servidor")
 
         while True:
             info = pars_msg(binascii.hexlify(data).decode("utf-8"))
@@ -211,8 +214,10 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                 if info[f"ANSWERTYPE{i}"] == 1:
 
                     # Cache
-                    poner_en_cache(info[f"ANSWERNAME{i}"], info[f"ANSWERRDDATA{i}"], cache)
-
+                    # poner_en_cache(info[f"ANSWERNAME{i}"], info[f"ANSWERRDDATA{i}"], cache)
+                    
+                    if debug:
+                        print(f"(debug) ip recibida para el dominio '{dominio_consulta}': {info[f"ANSWERRDDATA{i}"]}\n")
                     return data
             # Si no hay respuestas de tipo A, revisamos si hay NS en AUTHORITY
             name_servers = []
@@ -223,7 +228,10 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     for i in range(info["ARCOUNT"]):
                         if info[f"ADDITIONALTYPE{i}"] == 1:
                             # Si hay A en ADDITIONAL, devolvemos los datos con la ip en ADDITIONAL
-                            #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a {info[f"AUTHORITYNAME{info["NSCOUNT"]}"]} con dirección IP '{ip_addr}'")
+                            if debug:
+                                print(f"(debug) Consultando '{dominio_consulta}' a '{info[f"ADDITIONALNAME{i}"]}' con dirección ip '{info[f"ADDITIONALRDDATA{i}"]}'")
+                                print(f"(debug) Creando socket para conectar al servidor de ip: {info[f"ADDITIONALRDDATA{i}"]} - Resolver")
+                                print("(debug) --> Redirigiendo\n")
                             return resolver(mensaje_consulta, info[f"ADDITIONALRDDATA{i}"])
             # Resolvemos sobre el NS, buscando su ip
             if name_servers:
@@ -253,8 +261,7 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
                         nueva_ip = info_nuevo_msg[f"ANSWERRDDATA{i}"]
                         break
-                #if debug:
-                    #print(f"(debug) Consultando '{consulta[f"QNAME{consulta["QDCOUNT"] - 1}"]}' a '{".".join(name_servers)}' con dirección IP {nueva_ip}")
+
                 data = resolver(mensaje_consulta, ip_addr=nueva_ip)
                 # se reinicia el ciclo
 
@@ -351,5 +358,5 @@ if __name__ == "__main__":
         else:
             print("Respuesta vacia. No se mandó nada")
 
-        print(cache)
+        # print(cache)
         print("---------------------------------------------------------------\n")
