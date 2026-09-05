@@ -145,35 +145,29 @@ def get_ip(type, rddata):
         return ":".join(ip)
     return ""
 
-def get_name_server(ip_addr):
-    new_address = (ip_addr, 53)
-    ns_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    ns_socket.connect(new_address)
-    
-    header = "00 43 00 00 00 01 00 00 00 00 00 00 ".replace(" ","")
-    full_address = str(ip_addr) + ".in-addr.arpa"
-    address_splitted = full_address.split(".")
 
-    question = ''
-    for i in range(len(address_splitted)):
-        # Extraemos el largo de cada palabra, la pasamos a bytes, calculamos los bytes necesarios para la transformación
-        # Lo transformamos en hexadecimal
-        question = f"{str(len(address_splitted[i]).to_bytes((len(address_splitted[i]).bit_length() + 7) // 8, byteorder="big").hex())}" + address_splitted[i].encode('utf-8').hex()
-        # Acumulamos la pregunta
-        header += question
-    header += "00 00 02 00 01".replace(" ", "")
-    # Lo transformamos al formato correcto
-    nuevo_mensaje = binascii.unhexlify(header)
-    # Consultamos con el resolver para resolver la IP del NS
-    ns_socket.sendto(nuevo_mensaje, new_address)
-    data, _ = ns_socket.recvfrom(65536)
+def añadir_campo_answer(query, ip):
+    query_string = binascii.hexlify(query).decode("utf-8")
+    query_parseada = pars_msg(query_string)
+    query_sin_header = query_string[24:]
+    len_qname = 0
+    while query_sin_header[len_qname: len_qname+2] != "00":
+        len_qname+=2
+    len_qname+=2
 
-    info_nuevo_msg = pars_msg(binascii.hexlify(data).decode("utf-8"))
-    for i in range(info_nuevo_msg["ANCOUNT"]):
-        if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
-            name_server = info_nuevo_msg[f"ANSWERRDDATA{i}"]
-            break
-    return name_server
+    id_hex = str(int(query_parseada["ID"]).to_bytes(2, byteorder='big').hex())
+    header_sin_id = "80 80 00 01 00 01 00 00 00 00 ".replace(" ","")
+    header = id_hex + header_sin_id
+    nuevo_mensaje = (header + query_string[24: 24+len_qname+8])
+
+    answer_sin_rdlen = "c0 0c 00 01 00 01 00 00 01 09 ".replace(" ","")
+
+    ip_bytes = socket.inet_aton(ip)
+    ip_hex = binascii.hexlify(ip_bytes).decode('utf-8')
+    ip_hex_len = len(ip_hex)//2
+    ip_hex_len = str(ip_hex_len.to_bytes(2, byteorder='big').hex())
+    nuevo_mensaje += (answer_sin_rdlen + ip_hex_len + ip_hex)
+    return binascii.unhexlify(nuevo_mensaje.encode('utf-8'))
 
 
 id = 0
@@ -184,6 +178,14 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
     new_socket_address = (ip_addr, 53)
     consulta = pars_msg(binascii.hexlify(mensaje_consulta).decode("utf-8"))
     dominio_consulta = consulta[f"QNAME{consulta["QDCOUNT"] - 1}"] 
+
+    # Sección del caché. Buscamos en el diccionario el nombre de dominio, y si está devolvemos una response con la ip
+    if dominio_consulta in cache:
+        if debug:
+            print(f"(debug) Se ha utilizado el cache para el dominio: {dominio_consulta}\n")
+        response = añadir_campo_answer(mensaje_consulta, cache[dominio_consulta])
+        manager_general_de_frecuencias(frecuencias_dominios, cache, ultimos_dominios, dominio_consulta, cache[dominio_consulta])
+        return response
 
     try:
         # Conectamos el socket
@@ -204,18 +206,14 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
         while True:
             info = pars_msg(binascii.hexlify(data).decode("utf-8"))
 
-            # Sección del caché. Buscamos en el diccionario el nombre de dominio
-            # for i in range(info["QDCOUNT"]):
-                # if info[f"QNAME{i}"] in cache:
-
             # Ahora nos dividimos según el caso
             # Si es hay una respuesta de tipo A dentro de la sección Answer, devolvemos los datos
             for i in range(info["ANCOUNT"]):
                 if info[f"ANSWERTYPE{i}"] == 1:
 
                     # Cache
-                    # poner_en_cache(info[f"ANSWERNAME{i}"], info[f"ANSWERRDDATA{i}"], cache)
-                    
+                    manager_general_de_frecuencias(frecuencias_dominios, cache, ultimos_dominios, dominio_consulta, info[f"ANSWERRDDATA{i}"])
+
                     if debug:
                         print(f"(debug) ip recibida para el dominio '{dominio_consulta}': {info[f"ANSWERRDDATA{i}"]}\n")
                     return data
@@ -266,7 +264,6 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                 # se reinicia el ciclo
 
     finally:
-        id=0
         socket_root.close()
 
 def pars_question(msg):
@@ -289,29 +286,38 @@ def pars_question(msg):
     return parser
 
 
-def poner_en_cache(dominio, ip, dicc):
-    if dominio in dicc:
-        dicc[dominio][0] += 1
+def manager_general_de_frecuencias(dicc_frec, cache, lista_accedidos, dominio, ip):
+    # Diccionario de frecuencias
+    if dominio in dicc_frec:
+        dicc_frec[dominio][0] += 1
     else:
-        dicc[dominio] = [1, ip]
+        dicc_frec[dominio] = [1, ip]
 
-    # Aumentamos la frecuencia total de cache
-    dicc["frecuencia"][0] += 1
-
-    # Si pasa mas de 20 consultas, se limpia el cache
-    if dicc["frecuencia"][0] > 20:
-        dicc.clear()
-        dicc["frecuencia"] = [1, '']
-        dicc[dominio] = [1, ip]
-    else:
-        # Si no, ordenamos las llaves por frecuencia y actualizamos el dicc
-        frecuencia = dicc.pop("frecuencia")
-        dicc_ordenado = sorted(dicc.items(), key=lambda item: item[1][0], reverse=True)
-        dicc.clear()
-        dicc["frecuencia"] = frecuencia
-        dicc.update(dicc_ordenado)
-
+    # Ultimos dominios
+    lista_accedidos.insert(0, dominio)
+    if len(lista_accedidos) > 20:
+        consulta_antigua = lista_accedidos.pop()
+        if dicc_frec[consulta_antigua][0] == 1:
+            eliminado = dicc_frec.pop(consulta_antigua, None)
+        else:
+            dicc_frec[consulta_antigua][0] -= 1
+    # Actualizamos el cache
+    manager_de_cache(dicc_frec, cache)
     return
+
+
+def manager_de_cache(dicc_frec, cache):
+    frecuencias_ordenadas = sorted(dicc_frec.items(), key=lambda item: item[1][0], reverse=True)
+    cache.clear()
+    i = 1
+    for dominio in frecuencias_ordenadas:
+        cache[dominio[0]] = dicc_frec[dominio[0]][1]
+        if i == 3:
+            break
+        i += 1
+    return
+
+
 
 #msg = send_dns_message("8.8.4.4", 53)
 # print(bytes.fromhex("636f6d").decode("utf-8")) = com
@@ -335,10 +341,14 @@ if __name__ == "__main__":
 
     server_socket.bind(new_socket_address)
 
-    # Diccionario para el caché
+    # Diccionario de frecuencias: Trackea cuantas veces un nombre de dominio fue accesado previamente
     # llave = nombre del dominio | valor = Lista[numero de veces accesado, ip]
+    frecuencias_dominios = dict()
+    # Cache con los 3 dominios mas accedidos en las últimas 20 consultas
+    # llave = nombre del dominio | valor = ip
     cache = dict()
-    cache["frecuencia"] = [0, '']
+    # Lista que registra los últimos 20 dominios accedidos. Se maneja como una cola
+    ultimos_dominios = []
 
     print("Esperando clientes")
 
@@ -349,14 +359,16 @@ if __name__ == "__main__":
 
         respuesta = resolver(recv_message)
         if respuesta:
-            print(f"Se ha resolvido la petición con éxito: {respuesta}\n")
-            print("Mandando resolución al cliente\n")
+            print(f"Se ha resuelto la petición con éxito: {respuesta}\n")
+            print("Enviando resolución al cliente\n")
 
             server_socket.sendto(respuesta, address)
 
-            print("Respuesta mandada. Esperando nuevos mensajes\n")
+            print("Respuesta enviada. Esperando nuevos mensajes\n")
         else:
             print("Respuesta vacia. No se mandó nada")
 
-        # print(cache)
+        if debug:
+            print(f"(debug) Estado actual de los sitios accedidos en la ultimas 20 consultas: {frecuencias_dominios}")
+            print(f"(debug) Estado actual del cache: {cache}\n")
         print("---------------------------------------------------------------\n")
