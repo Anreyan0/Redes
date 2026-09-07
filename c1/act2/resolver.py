@@ -252,6 +252,9 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                 # Lo transformamos al formato correcto
                 nuevo_mensaje = binascii.unhexlify(header)
                 # Consultamos con el resolver para resolver la IP del NS
+
+                if debug:
+                    print(f"(debug) Consultando '{name_servers[0]}' (Name Server) a '.' con dirección ip '198.41.0.4'")
                 nueva_respuesta = resolver(nuevo_mensaje)
 
                 info_nuevo_msg = pars_msg(binascii.hexlify(nueva_respuesta).decode("utf-8"))
@@ -259,6 +262,10 @@ def resolver(mensaje_consulta: bytes, ip_addr="198.41.0.4"):
                     if info_nuevo_msg[f"ANSWERTYPE{i}"] == 1:
                         nueva_ip = info_nuevo_msg[f"ANSWERRDDATA{i}"]
                         break
+                if debug:
+                    print(f"(debug) Se ha encontrado la dirección ip de '{name_servers[0]}' (Name Server): '{nueva_ip}'")
+                    print(f"(debug) Consultando '{dominio_consulta}' a '{name_servers[0]}' con dirección ip '{nueva_ip}'")
+                    print(f"(debug) --> Redirigiendo\n")
 
                 data = resolver(mensaje_consulta, ip_addr=nueva_ip)
                 # se reinicia el ciclo
