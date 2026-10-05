@@ -47,17 +47,26 @@ class SocketTCP:
         sec = random.randint(0, 100)
         self.numero_secuencia = sec
         msg = self.numero_secuencia.to_bytes(4) + bytes([0, 1, 0])
-
-        self.socket_udp.sendto(msg, address)
-        msg_2, new_address = self.socket_udp.recvfrom(7)
-        msg_2 = self.parse_segment(msg_2)
         
-        if not(msg_2["N-Secuencia"] == self.numero_secuencia + 1 and
-                msg_2["ACK"] == "1" and
-                msg_2["SYN"] == "1" and
-                msg_2["FIN"] == "0"):
-            print("Timeout")
+        response_received_from_server = False
+        while not (response_received_from_server):
+            try:
+                self.socket_udp.sendto(msg, address)
+                self.socket_udp.settimeout(1)
+                
+                msg_2, new_address = self.socket_udp.recvfrom(7)
+                msg_2 = self.parse_segment(msg_2)
 
+                if (msg_2["N-Secuencia"] == self.numero_secuencia + 1 and
+                    msg_2["ACK"] == "1" and
+                    msg_2["SYN"] == "1" and
+                    msg_2["FIN"] == "0"):
+                    response_received_from_server = True
+                    continue
+            except:
+                print("Timeout")
+                pass
+        
         self.numero_secuencia = msg_2["N-Secuencia"] + 1
         msg = self.numero_secuencia.to_bytes(4) + bytes([1, 0, 0])
         self.socket_udp.sendto(msg, new_address)
