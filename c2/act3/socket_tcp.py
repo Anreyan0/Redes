@@ -45,21 +45,21 @@ class SocketTCP:
         self.direccion_destino = address
 
         sec = random.randint(0, 100)
-        msg = sec.to_bytes(4) + bytes([0, 1, 0])
+        self.numero_secuencia = sec
+        msg = self.numero_secuencia.to_bytes(4) + bytes([0, 1, 0])
 
         self.socket_udp.sendto(msg, address)
         msg_2, new_address = self.socket_udp.recvfrom(7)
         msg_2 = self.parse_segment(msg_2)
-        sec += 1
         
-        if not(msg_2["N-Secuencia"] == sec + 1 and
+        if not(msg_2["N-Secuencia"] == self.numero_secuencia + 1 and
                 msg_2["ACK"] == "1" and
                 msg_2["SYN"] == "1" and
                 msg_2["FIN"] == "0"):
-            ... #timeout
+            print("Timeout")
 
-        msg = sec.to_bytes(4) + bytes([1, 0, 0])
-        self.numero_secuencia = sec
+        self.numero_secuencia = msg_2["N-Secuencia"] + 1
+        msg = self.numero_secuencia.to_bytes(4) + bytes([1, 0, 0])
         self.socket_udp.sendto(msg, new_address)
         self.direccion_destino = new_address
 
@@ -72,27 +72,31 @@ class SocketTCP:
         
         msg, address = self.socket_udp.recvfrom(7)
         msg_rcv = self.parse_segment(msg)
-        sec = msg_rcv["N-Secuencia"] + 1
+        sec = msg_rcv["N-Secuencia"]
 
         if not (msg_rcv["ACK"] == "0" and
                 msg_rcv["SYN"] == "1" and
                 msg_rcv["FIN"] == "0"):
-            ...
+            print("Timeout")
 
-        msg_send = sec.to_bytes(4, byteorder='big') + bytes([1, 1, 0])
+        self.numero_secuencia = sec + 1
+        msg_send = self.numero_secuencia.to_bytes(4, byteorder='big') + bytes([1, 1, 0])
+
         new_socket = SocketTCP()
         new_socket.bind((self.direccion_origen[0], 0))
+        new_socket.numero_secuencia = self.numero_secuencia
         new_socket.direccion_destino = address
         new_socket.socket_udp.sendto(msg_send, address)
 
         msg_2, _ = new_socket.socket_udp.recvfrom(7)
         msg_2 = self.parse_segment(msg_2)
-        if not (msg_2["ACK"] == "1" and
+        if not (msg_2["N-Secuencia"] == new_socket.numero_secuencia + 1 and
+                msg_2["ACK"] == "1" and
                 msg_2["SYN"] == "0" and
                 msg_2["FIN"] == "0"):
-                    ...
+            print("Timeout")
 
-        new_socket.numero_secuencia = msg_2["N-Secuencia"] + 1
+        new_socket.numero_secuencia = msg_2["N-Secuencia"]
         #crear socket y retornar uno nuevo
         print("accept con éxito")
         return new_socket, new_socket.direccion_origen
