@@ -10,7 +10,9 @@ class SocketTCP:
         self.numero_secuencia = 0
         self.last_asf = 0
         self.buffer_parseado = []
-    # int(4 bytes) 00000ASF = 5 bytes
+        self.datos_sin_recibir = 0
+        self.message_received = 0
+    # int(4 bytes) A S F = 7 bytes
 
     @staticmethod
     def parse_segment(segmento):
@@ -48,7 +50,6 @@ class SocketTCP:
         self.socket_udp.sendto(msg, address)
         msg_2, new_address = self.socket_udp.recvfrom(7)
         msg_2 = self.parse_segment(msg_2)
-        sec += 1
         
         if not(msg_2["N-Secuencia"] == sec + 1 and
                msg_2["ACK"] == "1" and
@@ -56,8 +57,9 @@ class SocketTCP:
                msg_2["FIN"] == "0"):
             ... #timeout
 
+        sec += 1
         msg = sec.to_bytes(4) + bytes([1, 0, 0])
-        self.numero_secuencia = sec
+        self.numero_secuencia = sec + 1
         self.socket_udp.sendto(msg, new_address)
 
         print("connect con éxito")
@@ -93,3 +95,93 @@ class SocketTCP:
         #crear socket y retornar uno nuevo
         print("accept con éxito")
         return new_socket, new_socket.direccion_origen
+
+    def send(self, msg):
+        length = len(msg)
+        first_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0]) + length.to_bytes(4, byteorder="big")
+        mensaje_partido = [first_msg] + [msg[i:(i+16)] for i in range(0, length, 16)]
+        total_length = sum([len(mensaje) for mensaje in mensaje_partido])
+        sec = self.numero_secuencia
+        while self.numero_secuencia < total_length + sec:
+            try:
+                msg_send = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0]) + mensaje_partido[self.numero_secuencia - sec]
+                self.socket_udp.sendto(msg_send, self.direccion_destino)
+                self.socket_udp.settimeout(1)
+                msg_recv, _ = self.socket_udp.recvfrom(7)
+                msg_recv = self.parse_segment(msg_recv)
+
+                if (msg_recv["ACK"] == "1" and
+                    msg_recv["N-Secuencia"] == self.numero_secuencia + len(msg_recv["Mensaje"]) and
+                    msg_recv["SYN"] == "0" and
+                    msg_recv["FIN"] == "0"):
+                    self.numero_secuencia += len(msg_recv["Mensaje"])
+                    continue
+            except:
+                pass
+
+
+    def recv(self, buff_size):
+        if self.datos_sin_recibir == 0:
+            first = self.socket_udp.recvfrom(11)
+            first_msg = self.parse_segment(first)
+            message_length = int(first_msg["Mensaje"])
+            self.numero_secuencia = int(first_msg["N-Secuencia"]) + 4
+
+            nuevo_mensaje = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+            self.socket_udp.sendto(nuevo_mensaje, self.direccion_destino)
+                
+            if message_length > buff_size:
+                self.datos_sin_recibir = message_length
+                return self.recv(buff_size)
+            else:
+                msg = self.socket_udp.recvfrom(7 + message_length)
+                ack_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+                self.socket_udp.sendto(ack_msg, self.direccion_destino)
+                return self.parse_segment(msg)["Mensaje"]
+
+        else:
+            msg = self.socket_udp.recvfrom(7 + 16)
+            parsed_msg = self.parse_segment(msg)
+            if self.numero_secuencia != int(parsed_msg["N-Secuencia"]):
+                ack_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+                self.socket_udp.sendto(ack_msg, self.direccion_destino)
+                return self.recv(buff_size)
+            else:
+                self.message_received += 16
+                if (self.message_received >= buff_size):
+                    diferencia = self.message_received - buff_size
+                    if diferencia == 0:
+                        return parsed_msg["Mensaje"]
+                    else:
+                        return parsed_msg["Mensaje"][:]
+                
+                ack_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+                self.socket_udp.sendto(ack_msg, self.direccion_destino)
+                self.datos_sin_recibir -= buff_size
+                self.numero_secuencia = int(parsed_msg["N-Secuencia"]) + len(message_received) - 7
+                
+
+    # Administra el cierre de la conexión desde el Host A
+    def close(self):
+        first_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 1])
+        self.socket_udp.sendto(first_msg, self.direccion_destino)
+        self.socket_udp.settimeout(1)
+        self.socket_udp.recvfrom(7)
+        self.numero_secuencia += 1
+        second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+        self.socket_udp.sendto(second_msg, self.direccion_destino)
+        self.socket_udp.close()
+
+    # Administra el cierre de la conexión desde el Host B
+    def recv_close(self):
+        first_msg = self.socket_udp.recvfrom(7)
+        parsed_msg = self.parse_segment(first_msg)
+        if (parsed_msg["ACK"] == "0" and
+            parsed_msg["SYN"] == "0" and
+            parsed_msg["FIN"] == "1"):
+            self.numero_secuencia = parsed_msg["N-Secuencia"] + 1
+            second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 1])
+            self.socket_udp.sendto(second_msg, self.direccion_destino)
+            self.socket_udp.recvfrom(7)
+            self.socket_udp.close()
+    
