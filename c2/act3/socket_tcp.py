@@ -207,22 +207,39 @@ class SocketTCP:
         first_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 1])
         self.socket_udp.sendto(first_msg, self.direccion_destino)
         self.socket_udp.settimeout(1)
-        self.socket_udp.recvfrom(7)
-        self.numero_secuencia += 1
-        second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
-        self.socket_udp.sendto(second_msg, self.direccion_destino)
-        self.socket_udp.close()
+
+        response, _ = self.socket_udp.recvfrom(7)
+        parsed_rsp = self.parse_segment(response)
+        if (parsed_rsp["N-Secuencia"] == (self.numero_secuencia + 1) and
+            parsed_rsp["ACK"] == "1" and
+            parsed_rsp["SYN"] == "0" and
+            parsed_rsp["FIN"] == "1"):
+
+            self.numero_secuencia = parsed_rsp["N-Secuencia"] + 1
+            final_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
+            self.socket_udp.sendto(final_msg, self.direccion_destino)
+
+            self.socket_udp.close()
 
     # Administra el cierre de la conexión desde el Host B
     def recv_close(self):
-        first_msg = self.socket_udp.recvfrom(7)
+        first_msg, _ = self.socket_udp.recvfrom(7)
         parsed_msg = self.parse_segment(first_msg)
+
         if (parsed_msg["ACK"] == "0" and
             parsed_msg["SYN"] == "0" and
             parsed_msg["FIN"] == "1"):
+
             self.numero_secuencia = parsed_msg["N-Secuencia"] + 1
             second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 1])
             self.socket_udp.sendto(second_msg, self.direccion_destino)
-            self.socket_udp.recvfrom(7)
-            self.socket_udp.close()
+
+            final_msg, _ = self.socket_udp.recvfrom(7)
+            parsed_final = self.parse_segment(final_msg)
+            if (parsed_final["N-Secuencia"] == (self.numero_secuencia + 1) and
+                parsed_final["ACK"] == "1" and
+                parsed_final["SYN"] == "0" and
+                parsed_final["FIN"] == "0"):
+
+                self.socket_udp.close()
     
