@@ -20,7 +20,7 @@ class SocketTCP:
         dicc_parseo["N-Secuencia"] = int.from_bytes(segmento[:4], byteorder='big')
         dicc_parseo["ACK"] = segmento[4]
         dicc_parseo["SYN"] = segmento[5]
-        dicc_parseo["FIN"] = int.from_bytes(segmento[6:7])
+        dicc_parseo["FIN"] = segmento[6]
         dicc_parseo["Mensaje"] = segmento[7:]
         return dicc_parseo
         
@@ -41,6 +41,7 @@ class SocketTCP:
     def connect(self, address):
         self.direccion_destino = address
         sec = random.randint(0, 100)
+        #print(sec)
         self.numero_secuencia = sec
         msg = self.numero_secuencia.to_bytes(4) + bytes([0, 1, 0])
         self.socket_udp.settimeout(1)
@@ -78,7 +79,9 @@ class SocketTCP:
     # El accept es el server
     def accept(self):
         if self.direccion_origen == ("", 0):
-            Exception("Se necesita un bind antes")
+            raise Exception("Se necesita un bind antes")
+        
+        self.socket_udp.settimeout(1)
 
         while True:
             try:
@@ -100,21 +103,20 @@ class SocketTCP:
                 print(e)
 
         self.numero_secuencia = sec + 1
+        #print(self.numero_secuencia)
         msg_send = self.numero_secuencia.to_bytes(4, byteorder='big') + bytes([1, 1, 0])
 
         new_socket = SocketTCP()
         new_socket.bind((self.direccion_origen[0], 0))
+        new_socket.direccion_origen = new_socket.socket_udp.getsockname()
         new_socket.numero_secuencia = self.numero_secuencia
         new_socket.direccion_destino = address
-        
+
+        new_socket.socket_udp.settimeout(1)
         while True:
-            if (msg_rcv["ACK"] == 1 and
-                msg_rcv["SYN"] == 0 and
-                msg_rcv["FIN"] == 0):
-                print("Header correcto")
-                break
-        print("Enviando mensaje de respuesta (SYN + ACK)")
-        new_socket.socket_udp.sendto(msg_send, address)
+            try:
+                print("Enviando mensaje de respuesta (SYN + ACK)")
+                new_socket.socket_udp.sendto(msg_send, address)
 
                 print("Esperando mensaje de respuesta...")
                 # En esta sección esperamos 23 bytes para cubrir el caso de que se pierda el ACK
@@ -146,6 +148,9 @@ class SocketTCP:
         new_socket.numero_secuencia = msg_2_parsed["N-Secuencia"]
         #crear socket y retornar uno nuevo
         print("accept con éxito")
+        
+        new_socket.socket_udp.settimeout(None)
+        self.socket_udp.settimeout(None)
         return new_socket, new_socket.direccion_origen
 
     def send(self, msg):
@@ -155,39 +160,46 @@ class SocketTCP:
         i = 0
         while i < len(mensaje_partido):
             try:
-                print(f"numero secuencia enviado: {self.numero_secuencia}")
                 msg_send = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + mensaje_partido[i]
-                print(f"msg enviado {msg_send}")
                 print("Enviando mensaje")
                 self.socket_udp.sendto(msg_send, self.direccion_destino)
                 self.socket_udp.settimeout(1)
+                print("Esperando respuesta...")
                 msg_recv, _ = self.socket_udp.recvfrom(7)
-                msg_recv = self.parse_segment(msg_recv)
+                print("Respuesta recibida")
+                msg_recv_parsed = self.parse_segment(msg_recv)
 
-                if (msg_recv["ACK"] == 1 and
-                    msg_recv["SYN"] == 0 and
-                    msg_recv["FIN"] == 0):
-                    self.numero_secuencia = msg_recv["N-Secuencia"]
+                if (msg_recv_parsed["ACK"] == 0 and
+                    msg_recv_parsed["SYN"] == 0 and
+                    msg_recv_parsed["FIN"] == 0 and
+                    msg_recv_parsed["N-Secuencia"] == self.numero_secuencia + len(mensaje_partido[i])):
+                    print("Header correcto")
+                    self.numero_secuencia = msg_recv_parsed["N-Secuencia"]
                     i += 1
                     continue
-                print(f"Header incorrecto: {msg_recv}")
-                print(msg_recv_parsed)
-            except:
+                print("Header incorrecto")
+            except socket.timeout:
                 print("Timeout")
+            except Exception as e:
+                print(e)
 
 
     def recv(self, buff_size):
         # Revisamos si ya llegó el largo del mensaje o n
         # Notar que el recv del leargo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
         # Asumiremos que el alrgo del mensaje que se desea enviar lograr entrar en 16 bytes
+        print(self.received_len)
         if self.received_len == 0:
+            print("revisando bytes de largo del mensaje")
             if self.cuerpo_msg != b'':
+                print("El largo llegó en el accept")
                 self.received_len = int.from_bytes(self.cuerpo_msg)
                 self.numero_secuencia += len(self.cuerpo_msg)
                 response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                 self.cuerpo_msg = b''
                 self.socket_udp.sendto(response, self.direccion_destino)
             else:
+                print("recibiendo el largo del mensaje")
                 while True:
                     try:
                         print("Esperando mensaje...")
@@ -202,13 +214,11 @@ class SocketTCP:
                             response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                             self.socket_udp.sendto(response, self.direccion_destino)
                             break
-                        print(f"Header incorrecto: {msg}")
-                        print(parsed_msg)
+                        print("Header incorrecto")
                     except socket.timeout:
                         print("Timeout")
                     except Exception as e:
                         print(e)
-                        raise e
 
         cant_min = min(self.received_len, buff_size)
 
@@ -217,6 +227,7 @@ class SocketTCP:
         if len(self.pending_bytes_recvfrm) >= cant_min:
             ret = self.pending_bytes_recvfrm[:cant_min]
             self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
+            self.received_len -= len(ret)
             return ret
         
 
@@ -225,13 +236,10 @@ class SocketTCP:
         ret = b""
         while len(ret) < cant_min:
             try:
-                print(f"numero secuencia: {self.numero_secuencia}")
                 print("Esperando mensaje...")
                 msg_recv, _ = self.socket_udp.recvfrom(23)
                 print("Mensaje recibido!")
-                print(f"Mensaje recibido {msg_recv}")
                 parsed_msg_recv = self.parse_segment(msg_recv)
-                print(parsed_msg_recv)
                 
                 # Separamos los casos según el número de secuencia entregado y recibido
                 # Esperábamos este mensaje
@@ -264,20 +272,17 @@ class SocketTCP:
                 print("Timeout")
             except Exception as e:
                 print(e)
-                raise e
-
-        self.received_len -= len(ret)
 
         return ret
-
-
 
                 
 
     # Administra el cierre de la conexión desde el Host A
     def close(self):
+        #print(self.numero_secuencia)
+        self.numero_secuencia += 1
         first_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 1])
-        self.socket_udp.sendto(first_msg, self.direccion_destino)
+        counter = 0
         self.socket_udp.settimeout(1)
         parsed_rsp = None
 
@@ -310,27 +315,54 @@ class SocketTCP:
             final_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 0])
             self.socket_udp.sendto(final_msg, self.direccion_destino)
 
-            self.socket_udp.close()
+        self.socket_udp.close()
 
     # Administra el cierre de la conexión desde el Host B
     def recv_close(self):
-        first_msg, _ = self.socket_udp.recvfrom(7)
-        parsed_msg = self.parse_segment(first_msg)
+        print("Cerrando conexión")
+        counter = 0
+        fin = False
+        #print(self.numero_secuencia)
 
-        if (parsed_msg["ACK"] == 0 and
-            parsed_msg["SYN"] == 0 and
-            parsed_msg["FIN"] == 1):
+        while counter < 3:
+            try:
+                print("Esperando mensajes...")
+                self.socket_udp.settimeout(1)
+                msg, _ = self.socket_udp.recvfrom(7)
+                print("Mensaje recibido")
+                parsed_msg = self.parse_segment(msg)
 
-            self.numero_secuencia = parsed_msg["N-Secuencia"] + 1
-            second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 1])
-            self.socket_udp.sendto(second_msg, self.direccion_destino)
+                if not fin:
+                    if (parsed_msg["N-Secuencia"] == self.numero_secuencia + 1 and
+                        parsed_msg["ACK"] == 0 and
+                        parsed_msg["SYN"] == 0 and
+                        parsed_msg["FIN"] == 1):
+                        
+                        print("Mensaje FIN recibido")
+                        self.numero_secuencia = parsed_msg["N-Secuencia"] + 1
+                        second_msg = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([1, 0, 1])
+                        print("Enviando mensaje (FIN + ACK)")
+                        self.socket_udp.sendto(second_msg, self.direccion_destino)
+                        fin = True
+                        counter = 0
 
-            final_msg, _ = self.socket_udp.recvfrom(7)
-            parsed_final = self.parse_segment(final_msg)
-            if (parsed_final["N-Secuencia"] == (self.numero_secuencia + 1) and
-                parsed_final["ACK"] == 1 and
-                parsed_final["SYN"] == 0 and
-                parsed_final["FIN"] == 0):
+                    else:
+                        print("Header incorrecto 1")
+                else:
+                    if (parsed_msg["N-Secuencia"] == self.numero_secuencia + 1 and
+                        parsed_msg["ACK"] == 1 and
+                        parsed_msg["SYN"] == 0 and
+                        parsed_msg["FIN"] == 0):
+                        break
+                    else:
+                        print("Header incorrecto 2")
 
-                self.socket_udp.close()
+            except socket.timeout:
+                print("Timeout")
+                counter += 1
+            except Exception as e:
+                print(e)
+
+        print("Cerrando socket")
+        self.socket_udp.close()
     
