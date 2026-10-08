@@ -193,14 +193,18 @@ class SocketTCP:
         # Revisamos si ya llegó el largo del mensaje o n
         # Notar que el recv del leargo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
         # Asumiremos que el alrgo del mensaje que se desea enviar lograr entrar en 16 bytes
+        print(self.received_len)
         if self.received_len == 0:
+            print("revisando bytes de largo del mensaje")
             if self.cuerpo_msg != b'':
+                print("El largo llegó en el accept")
                 self.received_len = int.from_bytes(self.cuerpo_msg)
                 self.numero_secuencia += len(self.cuerpo_msg)
                 response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                 self.cuerpo_msg = b''
                 self.socket_udp.sendto(response, self.direccion_destino)
             else:
+                print("recibiendo el largo del mensaje")
                 while True:
                     try:
                         print("Esperando mensaje...")
@@ -230,6 +234,7 @@ class SocketTCP:
         if len(self.pending_bytes_recvfrm) >= cant_min:
             ret = self.pending_bytes_recvfrm[:cant_min]
             self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
+            self.received_len -= len(ret)
             return ret
         
 
@@ -238,6 +243,7 @@ class SocketTCP:
         ret = b""
         while len(ret) < cant_min:
             try:
+                print(f"ret {len(ret)} {ret}")
                 print(f"numero secuencia: {self.numero_secuencia}")
                 print("Esperando mensaje...")
                 msg_recv, _ = self.socket_udp.recvfrom(23)
@@ -250,13 +256,16 @@ class SocketTCP:
                 # Esperábamos este mensaje
                 if parsed_msg_recv["N-Secuencia"] == self.numero_secuencia:
                     print("Mensaje esperado")
+                    print(f"bytes pendientes guardados: {self.pending_bytes_recvfrm}")
                     self.pending_bytes_recvfrm += parsed_msg_recv["Mensaje"]
+                    print(f"bytes pendientes guardados + agregados: {self.pending_bytes_recvfrm}")
                     if len(self.pending_bytes_recvfrm) >= cant_min:
                         ret_iteration = self.pending_bytes_recvfrm[:cant_min]
                         self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
                     else:
                         ret_iteration = self.pending_bytes_recvfrm
                         self.pending_bytes_recvfrm = b''
+                    print(f"ret_iteration: {ret_iteration}")
                     ret += ret_iteration
                     self.numero_secuencia += len(parsed_msg_recv["Mensaje"])
                     self.datos_sin_recibir -= len(ret_iteration)
@@ -278,7 +287,8 @@ class SocketTCP:
             except Exception as e:
                 print(e)
                 raise e
-
+        print("ultimos mensajes del recv")
+        print(self.received_len, ret)
         self.received_len -= len(ret)
 
         return ret
@@ -329,6 +339,7 @@ class SocketTCP:
 
     # Administra el cierre de la conexión desde el Host B
     def recv_close(self):
+        print("Cerrando conexión")
         counter = 0
         fin = False
         #print(self.numero_secuencia)
