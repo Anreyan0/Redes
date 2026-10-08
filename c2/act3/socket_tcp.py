@@ -160,9 +160,7 @@ class SocketTCP:
         i = 0
         while i < len(mensaje_partido):
             try:
-                print(f"numero secuencia enviado: {self.numero_secuencia}")
                 msg_send = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + mensaje_partido[i]
-                print(f"msg enviado {msg_send}")
                 print("Enviando mensaje")
                 self.socket_udp.sendto(msg_send, self.direccion_destino)
                 self.socket_udp.settimeout(1)
@@ -179,14 +177,11 @@ class SocketTCP:
                     self.numero_secuencia = msg_recv_parsed["N-Secuencia"]
                     i += 1
                     continue
-                print(f"Header incorrecto: {msg_recv}")
-                print(msg_recv_parsed)
-                print(self.numero_secuencia)
+                print("Header incorrecto")
             except socket.timeout:
                 print("Timeout")
             except Exception as e:
                 print(e)
-                raise e
 
 
     def recv(self, buff_size):
@@ -219,13 +214,11 @@ class SocketTCP:
                             response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                             self.socket_udp.sendto(response, self.direccion_destino)
                             break
-                        print(f"Header incorrecto: {msg}")
-                        print(parsed_msg)
+                        print("Header incorrecto")
                     except socket.timeout:
                         print("Timeout")
                     except Exception as e:
                         print(e)
-                        raise e
 
         cant_min = min(self.received_len, buff_size)
 
@@ -243,29 +236,22 @@ class SocketTCP:
         ret = b""
         while len(ret) < cant_min:
             try:
-                print(f"ret {len(ret)} {ret}")
-                print(f"numero secuencia: {self.numero_secuencia}")
                 print("Esperando mensaje...")
                 msg_recv, _ = self.socket_udp.recvfrom(23)
                 print("Mensaje recibido!")
-                print(f"Mensaje recibido {msg_recv}")
                 parsed_msg_recv = self.parse_segment(msg_recv)
-                print(parsed_msg_recv)
                 
                 # Separamos los casos según el número de secuencia entregado y recibido
                 # Esperábamos este mensaje
                 if parsed_msg_recv["N-Secuencia"] == self.numero_secuencia:
                     print("Mensaje esperado")
-                    print(f"bytes pendientes guardados: {self.pending_bytes_recvfrm}")
                     self.pending_bytes_recvfrm += parsed_msg_recv["Mensaje"]
-                    print(f"bytes pendientes guardados + agregados: {self.pending_bytes_recvfrm}")
                     if len(self.pending_bytes_recvfrm) >= cant_min:
                         ret_iteration = self.pending_bytes_recvfrm[:cant_min]
                         self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
                     else:
                         ret_iteration = self.pending_bytes_recvfrm
                         self.pending_bytes_recvfrm = b''
-                    print(f"ret_iteration: {ret_iteration}")
                     ret += ret_iteration
                     self.numero_secuencia += len(parsed_msg_recv["Mensaje"])
                     self.datos_sin_recibir -= len(ret_iteration)
@@ -286,14 +272,8 @@ class SocketTCP:
                 print("Timeout")
             except Exception as e:
                 print(e)
-                raise e
-        print("ultimos mensajes del recv")
-        print(self.received_len, ret)
-        self.received_len -= len(ret)
 
         return ret
-
-
 
                 
 
@@ -367,9 +347,7 @@ class SocketTCP:
                         counter = 0
 
                     else:
-                        print(f"Header incorrecto 1: {msg}")
-                        print(parsed_msg)
-                        print(self.numero_secuencia)
+                        print("Header incorrecto 1")
                 else:
                     if (parsed_msg["N-Secuencia"] == self.numero_secuencia + 1 and
                         parsed_msg["ACK"] == 1 and
@@ -377,9 +355,7 @@ class SocketTCP:
                         parsed_msg["FIN"] == 0):
                         break
                     else:
-                        print(f"Header incorrecto 2: {msg}")
-                        print(parsed_msg)
-                        print(self.numero_secuencia)
+                        print("Header incorrecto 2")
 
             except socket.timeout:
                 print("Timeout")
