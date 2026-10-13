@@ -197,8 +197,9 @@ class SocketTCP:
     def send_using_go_back_n(self, msg: bytes) -> None:
         message_length = str(len(msg)).encode()
         # dividimos el mensaje en trozos de 16 bytes
-        data_list = [msg[i+4:i+8].encode() for i in range(-4, len(msg)-4, 4)]
+        data_list = [msg[i+4:i+8] for i in range(-4, len(msg)-4, 4)]
         full_data_list = [message_length] + data_list
+        full_length = len(full_data_list)
 
         # usamos una ventana para que vean como se usa
         initial_seq = self.numero_secuencia
@@ -206,29 +207,52 @@ class SocketTCP:
         wnd_index = 0
 
         # partimos armando y enviando el primer segmento
-        for i in range(len(full_data_list)):
-            
         current_data = data_to_send.get_data(0)
         current_seq = data_to_send.get_sequence_number(0)
-        current_segment = self.wrap_data_as_segment(current_data, current_seq)
+        current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
 
+        first_sequence = True
+        k = 0
         while current_data is not None:
             self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+            self.numero_secuencia = current_seq
+
+            if first_sequence == True:
+                for i in range(1, full_length):
+                    if i >= 8:
+                        break
+                    
+                    current_data = data_to_send.get_data(i)
+                    current_seq = data_to_send.get_sequence_number(i)
+                    self.numero_secuencia = current_seq
+                    current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+                    self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+                first_sequence = False
+
             try:
-                answer, address = self.socketUDP.recvfrom(self.buff_size)
-                if self.is_valid_ack_stop_and_wait(current_segment, answer):
-                    self.socketUDP.stop_timer(timer_index=0) # solo hay un timer
+                answer, address = self.socket_udp.recvfrom(7)
+                parsed_answer = self.parse_segment(answer)
+                if (parsed_answer["ACK"] == 0 and
+                    parsed_answer["SYN"] == 0 and
+                    parsed_answer["FIN"] == 0 and
+                    parsed_answer["N-Secuencia"] >= self.numero_secuencia + len(full_data_list[k])):
+                    self.socket_udp.stop_timer(timer_index=0)
+                    k += 1
+
                     # actualizamos el segmento
                     data_to_send.move_window(1)
-                    current_data = data_to_send.get_data(0)
-                    current_seq = data_to_send.get_sequence_number(0)
-                    if current_data is not None:
-                        self.seq = current_seq
-                        current_segment = self.wrap_data_as_segment(current_data, current_seq)
-                        self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+                    current_data = data_to_send.get_data(7)
+                    current_seq = data_to_send.get_sequence_number(7)
+                    current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
 
             except TimeoutError:
-                self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+                print("Timeout")
+                for i in range(0,8):
+                    current_data = data_to_send.get_data(i)
+                    current_seq = data_to_send.get_sequence_number(i)
+                    current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+                    self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+
 
 
     def recv(self, buff_size, mode="stop_and_wait"):
@@ -238,11 +262,11 @@ class SocketTCP:
                 
     def recv_using_stop_and_wait(self, buff_size):
         # Revisamos si ya llegó el largo del mensaje o n
-        # Notar que el recv del leargo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
+        # Notar que el recv del largo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
         # Asumiremos que el alrgo del mensaje que se desea enviar lograr entrar en 16 bytes
         print(self.received_len)
         if self.received_len == 0:
-            print("revisando bytes de largo del mensaje")
+            print("Revisando bytes de largo del mensaje")
             if self.cuerpo_msg != b'':
                 print("El largo llegó en el accept")
                 self.received_len = int.from_bytes(self.cuerpo_msg)
@@ -251,7 +275,7 @@ class SocketTCP:
                 self.cuerpo_msg = b''
                 self.socket_udp.sendto(response, self.direccion_destino)
             else:
-                print("recibiendo el largo del mensaje")
+                print("Recibiendo el largo del mensaje")
                 while True:
                     try:
                         print("Esperando mensaje...")
@@ -328,7 +352,95 @@ class SocketTCP:
         return ret
 
     def recv_using_go_back_n(self, buff_size):
-        ...
+        # Revisamos si ya llegó el largo del mensaje o n
+        # Notar que el recv del largo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
+        # Asumiremos que el alrgo del mensaje que se desea enviar lograr entrar en 16 bytes
+        print(self.received_len)
+        if self.received_len == 0:
+            print("Revisando bytes de largo del mensaje")
+            if self.cuerpo_msg != b'':
+                print("El largo llegó en el accept")
+                self.received_len = int.from_bytes(self.cuerpo_msg)
+                self.numero_secuencia += len(self.cuerpo_msg)
+                response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
+                self.cuerpo_msg = b''
+                self.socket_udp.sendto(response, self.direccion_destino)
+            else:
+                        print("Recibiendo el largo del mensaje")
+                        while True:
+                            try:
+                                print("Esperando mensaje...")
+                                msg, _ = self.socket_udp.recvfrom(23)
+                                print("Mensaje recibido")
+                                parsed_msg = self.parse_segment(msg)
+                                if (len(parsed_msg["Mensaje"]) > 0 and                      # Debe de existir el mensaje
+                                    parsed_msg["N-Secuencia"] == self.numero_secuencia):    # En este caso el número de secuencia del primer mensaje y del ACK es el mismo
+                                    print("Header correcto")
+                                    self.received_len = int.from_bytes(parsed_msg["Mensaje"])
+                                    self.numero_secuencia += len(parsed_msg["Mensaje"])
+                                    response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
+                                    self.socket_udp.sendto(response, self.direccion_destino)
+                                    break
+                                print("Header incorrecto")
+                            except socket.timeout:
+                                print("Timeout")
+                            except Exception as e:
+                                print(e)
+        
+                cant_min = min(self.received_len, buff_size)
+        
+                # En el caso de que hayan suficientes bytes recibidos por el buffer fijo interno
+                # No esperamos más respuestas si no que solo entregamos lo que hemos conservado aún
+                if len(self.pending_bytes_recvfrm) >= cant_min:
+                    ret = self.pending_bytes_recvfrm[:cant_min]
+                    self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
+                    self.received_len -= len(ret)
+                    return ret
+                
+        
+                self.datos_sin_recibir = cant_min
+                # Comenzamos a recibir los segmentos del mensaje send
+                ret = b""
+                while len(ret) < cant_min:
+                    try:
+                        print("Esperando mensaje...")
+                        msg_recv, _ = self.socket_udp.recvfrom(23)
+                        print("Mensaje recibido!")
+                        parsed_msg_recv = self.parse_segment(msg_recv)
+                        
+                        # Separamos los casos según el número de secuencia entregado y recibido
+                        # Esperábamos este mensaje
+                        if parsed_msg_recv["N-Secuencia"] == self.numero_secuencia:
+                            print("Mensaje esperado")
+                            self.pending_bytes_recvfrm += parsed_msg_recv["Mensaje"]
+                            if len(self.pending_bytes_recvfrm) >= cant_min:
+                                ret_iteration = self.pending_bytes_recvfrm[:cant_min]
+                                self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
+                            else:
+                                ret_iteration = self.pending_bytes_recvfrm
+                                self.pending_bytes_recvfrm = b''
+                            ret += ret_iteration
+                            self.numero_secuencia += len(parsed_msg_recv["Mensaje"])
+                            self.datos_sin_recibir -= len(ret_iteration)
+                            resp = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
+                            print("Enviando confirmación de mensaje")
+                            self.socket_udp.sendto(resp, self.direccion_destino)
+                        # Este mensaje ya fue recibido
+                        elif parsed_msg_recv["N-Secuencia"] < self.numero_secuencia:
+                            print("Mensaje repetido")
+                            secuencia = parsed_msg_recv["N-Secuencia"] + len(parsed_msg_recv["Mensaje"])
+                            resp = secuencia.to_bytes(4) + bytes([0, 0, 0])
+                            print("Enviando confirmación repetida")
+                            self.socket_udp.sendto(resp, self.direccion_destino)
+                        # El mensaje no era para nosotros
+                        else:
+                            print("Header incorrecto")
+                    except socket.timeout:
+                        print("Timeout")
+                    except Exception as e:
+                        print(e)
+        
+                return ret
 
     # Administra el cierre de la conexión desde el Host A
     def close(self):
