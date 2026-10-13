@@ -1,9 +1,12 @@
 import socket
 import random
+import socketUDP
+import CongestionControl
+import slidingWindowCC
 
 class SocketTCP:
     def __init__(self):
-        self.socket_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket_udp = socketUDP.SocketUDP()
         # Tupla -> (ip, puerto)
         self.direccion_destino = ("", 0)
         self.direccion_origen = ("", 0)
@@ -31,6 +34,10 @@ class SocketTCP:
         headers = bytes([parsed["ACK"], parsed["SYN"], parsed["FIN"]])
         mensaje = parsed["Mensaje"]
         return sec + headers + mensaje
+
+    @staticmethod
+    def wrap_data_as_segment(self, data, seq):
+        return seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + data
 
     def bind(self, address):
         self.direccion_origen = address
@@ -153,7 +160,11 @@ class SocketTCP:
         self.socket_udp.settimeout(None)
         return new_socket, new_socket.direccion_origen
 
-    def send(self, msg):
+    def send(self, msg, mode="stop_and_wait"):
+        if mode == "stop_and_wait":
+            self.send_using_stop_and_wait(msg)
+
+    def send_using_stop_and_wait(self, msg):
         length = len(msg)
         first_msg = length.to_bytes(4, byteorder="big")
         mensaje_partido = [first_msg] + [msg[i:(i+16)] for i in range(0, length, 16)]
@@ -183,8 +194,49 @@ class SocketTCP:
             except Exception as e:
                 print(e)
 
+    def send_using_go_back_n(self, msg: bytes) -> None:
+        message_length = str(len(msg)).encode()
+        # dividimos el mensaje en trozos de 16 bytes
+        data_list = [msg[i+4:i+8].encode() for i in range(-4, len(msg)-4, 4)]
+        full_data_list = [message_length] + data_list
 
-    def recv(self, buff_size):
+        # usamos una ventana para que vean como se usa
+        initial_seq = self.numero_secuencia
+        data_to_send = slidingWindowCC.SlidingWindowCC(8, full_data_list, initial_seq)
+        wnd_index = 0
+
+        # partimos armando y enviando el primer segmento
+        for i in range(len(full_data_list)):
+            
+        current_data = data_to_send.get_data(0)
+        current_seq = data_to_send.get_sequence_number(0)
+        current_segment = self.wrap_data_as_segment(current_data, current_seq)
+
+        while current_data is not None:
+            self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+            try:
+                answer, address = self.socketUDP.recvfrom(self.buff_size)
+                if self.is_valid_ack_stop_and_wait(current_segment, answer):
+                    self.socketUDP.stop_timer(timer_index=0) # solo hay un timer
+                    # actualizamos el segmento
+                    data_to_send.move_window(1)
+                    current_data = data_to_send.get_data(0)
+                    current_seq = data_to_send.get_sequence_number(0)
+                    if current_data is not None:
+                        self.seq = current_seq
+                        current_segment = self.wrap_data_as_segment(current_data, current_seq)
+                        self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+
+            except TimeoutError:
+                self.socketUDP.sendto(current_segment, self.destination_address, timer_index=0)
+
+
+    def recv(self, buff_size, mode="stop_and_wait"):
+        if mode == "stop_and_wait":
+            self.recv_using_stop_and_wait(buff_size)
+
+                
+    def recv_using_stop_and_wait(self, buff_size):
         # Revisamos si ya llegó el largo del mensaje o n
         # Notar que el recv del leargo total del mensaje va por detrás y no está considerado como mensaje para ser entregado
         # Asumiremos que el alrgo del mensaje que se desea enviar lograr entrar en 16 bytes
@@ -275,7 +327,8 @@ class SocketTCP:
 
         return ret
 
-                
+    def recv_using_go_back_n(self, buff_size):
+        ...
 
     # Administra el cierre de la conexión desde el Host A
     def close(self):
