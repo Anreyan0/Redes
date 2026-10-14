@@ -273,6 +273,7 @@ class SocketTCP:
             except Exception as e:
                 print(e)
 
+        self.received_len -= len(ret)
         return ret
 
                 
