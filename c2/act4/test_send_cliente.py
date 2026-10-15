@@ -8,16 +8,16 @@ client_socketTCP = socket_tcp.SocketTCP()
 client_socketTCP.connect(address)
 # test 1
 message = "Mensje de len=16".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 # test 2
 message = "Mensaje de largo 19".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 # test 3
 message = "Mensaje de largo 19".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 # test 4
 message = "Mensaje de largo 19".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 
 # tests largos
 print("Empiezan los tests largos")
@@ -25,15 +25,15 @@ print("Empiezan los tests largos")
 
 # test 5
 message = "Esto entre muchas comillas se supone que debe ser un mensaje de largo 72".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 # test 6
 message = "Esto entre muchas comillas es un mensaje de largo 52".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 
 # test 7
 # largo 120 carácteres
 message = "El viejo faro sobre el acantilado rocoso guiaba pacientemente a los barcos perdidos durante aquella tormentosa noche.".encode()
-client_socketTCP.send(message)
+client_socketTCP.send(message, mode="go_back_n")
 
 # Cerrar conexión
 print("Cerrando conexión")
