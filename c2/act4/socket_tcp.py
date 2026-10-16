@@ -16,6 +16,8 @@ class SocketTCP:
         self.pending_bytes_recvfrm = b''
         self.received_len = 0
         self._receiving_go_back_n = False
+        self.congestion_controler = CongestionControl.CongestionControl(8)
+        self.congestion_control_on = False
     # int(4 bytes) A S F = 7 bytes
 
     @staticmethod
@@ -36,6 +38,8 @@ class SocketTCP:
         mensaje = parsed["Mensaje"]
         return sec + headers + mensaje
 
+    def set_congestion_control_on(self, bool):
+        self.congestion_control_on = bool
 
     def bind(self, address):
         self.direccion_origen = address
@@ -201,10 +205,17 @@ class SocketTCP:
                 print(e)
 
     def send_using_go_back_n(self, msg: bytes) -> None:
+
         full_data_list = [len(msg).to_bytes(4, byteorder="big")]
-        full_data_list += [msg[i:i + 16] for i in range(0, len(msg), 16)]
+        full_data_list += [msg[i:i + 8] for i in range(0, len(msg), 8)]
         window_size = 8
-        data_to_send = slidingWindowCC.SlidingWindowCC(window_size, full_data_list, self.numero_secuencia)
+        if self.congestion_control_on == True:
+            data_to_send = slidingWindowCC.SlidingWindowCC(int(self.congestion_controler.get_cwnd()), full_data_list, self.numero_secuencia)
+            # debug
+            print(f"(debug) Ventana de congestión: {self.congestion_controler.get_cwnd()}, MSS = {self.congestion_controler.MSS}")
+        else:
+            data_to_send = slidingWindowCC.SlidingWindowCC(window_size, full_data_list, self.numero_secuencia)
+        
         print(data_to_send)
         self.socket_udp.settimeout(1)
         sent_count = 0
@@ -241,6 +252,11 @@ class SocketTCP:
                     continue
 
                 ack_sequence = parsed_answer["N-Secuencia"]
+                if self.congestion_control_on == True:
+                    self.congestion_controler.event_ack_received()
+                    data_to_send.update_window_size(int(self.congestion_controler.get_cwnd()))
+
+
                 amount_of_moves = 0
                 for index in range(sent_count):
                     segment_end = (data_to_send.get_sequence_number(index)
@@ -262,6 +278,10 @@ class SocketTCP:
                 self.socket_udp.stop_timer(timer_index=0)
                 sent_count = 0
                 print("Timeout")
+
+                if self.congestion_control_on == True:
+                    self.congestion_controler.event_timeout()
+                    data_to_send.update_window_size(int(self.congestion_controler.get_cwnd()))
                 continue
             # El timer sigue activo mientras haya datos pendientes, incluso
             # cuando no quedan segmentos nuevos con los que iniciarlo.

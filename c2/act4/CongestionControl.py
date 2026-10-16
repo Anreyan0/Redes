@@ -16,7 +16,7 @@ class CongestionControl:
         # True si aun no hay ningun timeout dentro del estado SLOW START. False en caso contrario
         self.is_first_timeout_ss = True
 
-    def get_cwnd(self) -> bytes:
+    def get_cwnd(self):
         return self.cwnd
 
     def get_MSS_in_cwnd(self) -> int:
