@@ -205,17 +205,27 @@ class SocketTCP:
         print(data_to_send)
 
         # partimos armando y enviando el primer segmento
-        current_data = data_to_send.get_data(0)
-        current_seq = data_to_send.get_sequence_number(0)
-        current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+        
 
         first_sequence = True
         i = 1
-        k = 0
-        while current_data is not None:
-            print(self.parse_segment(current_segment))
-            self.numero_secuencia = current_seq
-            self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+        n_envios = 8
+        while current_data is not None:       
+            l = 0
+            if n_envios > 0:
+                while l < n_envios:
+                    current_data = data_to_send.get_data(l)
+                    if current_data is None:
+                        break
+                    else:
+                        current_seq = data_to_send.get_sequence_number(l)
+                        current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+                        self.numero_secuencia = current_seq
+
+                        self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+            else:
+                self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
+            
 
             try:
                 answer, address = self.socket_udp.recvfrom(7)
@@ -226,40 +236,22 @@ class SocketTCP:
                     parsed_answer["FIN"] == 0 and
                     parsed_answer["N-Secuencia"] >= self.numero_secuencia):
                     self.socket_udp.stop_timer(timer_index=0)
-                    k += 1
+                    # movemos ventana
+                    amount_of_moves = ((parsed_answer["N-Secuencia"] - (self.numero_secuencia)) / 16) + 1
+                    data_to_send.move_window(amount_of_moves)
 
-                    if first_sequence == True:
-                        current_data = data_to_send.get_data(i)
-                        if current_data is not None:
-                            current_seq = data_to_send.get_sequence_number(i)
-                            current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
-                            i += 1
-                            if i == 7:
-                                first_sequence = False
-                        else:
-                            self.numero_secuencia += len(self.parse_segment(current_segment)["Mensaje"]) 
-
-                    else:
-                        # movemos ventana
-                        amount_of_moves = round(((parsed_answer["N-Secuencia"] - (self.numero_secuencia)) / 16) + 1)
-                        data_to_send.move_window(amount_of_moves)
-
-                        current_data = data_to_send.get_data(7)
-                        if current_data is not None:
-                            self.numero_secuencia = current_seq
-                            current_seq = data_to_send.get_sequence_number(7)
-                            current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+                    current_data = data_to_send.get_data(7)
+                    if current_data is not None:
+                        self.numero_secuencia = current_seq
+                        current_seq = data_to_send.get_sequence_number(7)
+                        current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
+                        n_envios = 0
 
             except TimeoutError:
-                for l in range(0,8):
-                    current_data = data_to_send.get_data(l)
-                    if current_data is not None:
-                        current_seq = data_to_send.get_sequence_number(l)
-                        current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
-                        self.socket_udp.sendto(current_segment, self.direccion_destino, timer_index=0)
-                    else:
-                        break
+                n_envios = 8
                 print("Timeout")
+                continue
+    
 
 
 
