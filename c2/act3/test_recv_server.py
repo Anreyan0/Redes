@@ -1,5 +1,6 @@
 # SERVER
 import socket_tcp
+import sys
 
 address = ("localhost", 5000)
 
@@ -71,6 +72,23 @@ if (complete_message) == "Esto entre muchas comillas es un mensaje de largo 52".
     print("Test 6: Passed")
 else: 
     print("Test 6: Failed")
+
+# test 7
+if len(sys.argv) < 2:
+    print("El cliente no mandará el archivo natie.txt. El test 7 se ignora")
+else:
+    buff_size = 14
+    message = b''
+    i = 0
+    while i < 26:
+        message += connection_socketTCP.recv(buff_size)
+        i += 1
+
+    print("Test 7 received:", message)
+    if (message) == "Nice Nature was born in 1988 at the Watanabe Ranch in Urakawa, Hokkaido. His sire, Nice Dancer, had six major wins in Canada, and his dam, Urakawa Miyuki, had three wins, including the 1984 open of what would become the Tulip Sho. Nice Nature's to-be owner Toyoshima Masao made a deposit at Watanabe Ranch. According to the owner of the ranch Watanabe Kazuma.".encode(): 
+        print("Test 7: Passed")
+    else: 
+        print("Test 7: Failed")
 
 
 print("Cerrando conexión")

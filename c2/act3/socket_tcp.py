@@ -165,10 +165,12 @@ class SocketTCP:
                 self.socket_udp.sendto(msg_send, self.direccion_destino)
                 self.socket_udp.settimeout(1)
                 print("Esperando respuesta...")
+                
                 msg_recv, _ = self.socket_udp.recvfrom(7)
                 print("Respuesta recibida")
                 msg_recv_parsed = self.parse_segment(msg_recv)
 
+                
                 if (msg_recv_parsed["ACK"] == 0 and
                     msg_recv_parsed["SYN"] == 0 and
                     msg_recv_parsed["FIN"] == 0 and
@@ -205,6 +207,7 @@ class SocketTCP:
                         print("Esperando mensaje...")
                         msg, _ = self.socket_udp.recvfrom(23)
                         print("Mensaje recibido")
+
                         parsed_msg = self.parse_segment(msg)
                         if (len(parsed_msg["Mensaje"]) > 0 and                      # Debe de existir el mensaje
                             parsed_msg["N-Secuencia"] == self.numero_secuencia):    # En este caso el número de secuencia del primer mensaje y del ACK es el mismo
@@ -214,7 +217,9 @@ class SocketTCP:
                             response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                             self.socket_udp.sendto(response, self.direccion_destino)
                             break
-                        print("Header incorrecto")
+                        print("Header incorrecto. Enviando el ACK de nuevo")
+                        response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
+                        self.socket_udp.sendto(response, self.direccion_destino)
                     except socket.timeout:
                         print("Timeout")
                     except Exception as e:
