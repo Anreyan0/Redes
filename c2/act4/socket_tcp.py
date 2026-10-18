@@ -182,8 +182,8 @@ class SocketTCP:
             try:
                 msg_send = self.numero_secuencia.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + mensaje_partido[i]
                 print("Enviando mensaje")
-                self.socket_udp.sendto(msg_send, self.direccion_destino)
                 self.socket_udp.settimeout(1)
+                self.socket_udp.sendto(msg_send, self.direccion_destino)
                 print("Esperando respuesta...")
                 msg_recv, _ = self.socket_udp.recvfrom(7)
                 print("Respuesta recibida")
@@ -199,8 +199,10 @@ class SocketTCP:
                     i += 1
                     continue
                 print("Header incorrecto")
+                self.socket_udp.stop_timer()
             except socket.timeout:
                 print("Timeout")
+                self.socket_udp.stop_timer()
             except Exception as e:
                 print(e)
 
@@ -333,6 +335,7 @@ class SocketTCP:
                 response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                 self.cuerpo_msg = b''
                 self.socket_udp.sendto(response, self.direccion_destino)
+                self.socket_udp.stop_timer()
             else:
                 print("recibiendo el largo del mensaje")
                 while True:
@@ -348,10 +351,15 @@ class SocketTCP:
                             self.numero_secuencia += len(parsed_msg["Mensaje"])
                             response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                             self.socket_udp.sendto(response, self.direccion_destino)
+                            self.socket_udp.stop_timer()
                             break
-                        print("Header incorrecto")
+                        print("Header incorrecto. Enviando el ACK de nuevo")
+                        response = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
+                        self.socket_udp.sendto(response, self.direccion_destino)
+                        self.socket_udp.stop_timer()
                     except socket.timeout:
                         print("Timeout")
+                        self.socket_udp.stop_timer()
                     except Exception as e:
                         print(e)
 
@@ -363,7 +371,6 @@ class SocketTCP:
             ret = self.pending_bytes_recvfrm[:cant_min]
             self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
             self.received_len -= len(ret)
-            print(ret)
             return ret
         
 
@@ -382,9 +389,9 @@ class SocketTCP:
                 if parsed_msg_recv["N-Secuencia"] == self.numero_secuencia:
                     print("Mensaje esperado")
                     self.pending_bytes_recvfrm += parsed_msg_recv["Mensaje"]
-                    if len(self.pending_bytes_recvfrm) >= cant_min:
-                        ret_iteration = self.pending_bytes_recvfrm[:cant_min]
-                        self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min:]
+                    if len(self.pending_bytes_recvfrm) >= cant_min - len(ret):
+                        ret_iteration = self.pending_bytes_recvfrm[:cant_min - len(ret)]
+                        self.pending_bytes_recvfrm = self.pending_bytes_recvfrm[cant_min - len(ret):]
                     else:
                         ret_iteration = self.pending_bytes_recvfrm
                         self.pending_bytes_recvfrm = b''
@@ -394,6 +401,7 @@ class SocketTCP:
                     resp = self.numero_secuencia.to_bytes(4) + bytes([0, 0, 0])
                     print("Enviando confirmación de mensaje")
                     self.socket_udp.sendto(resp, self.direccion_destino)
+                    self.socket_udp.stop_timer()
                 # Este mensaje ya fue recibido
                 elif parsed_msg_recv["N-Secuencia"] < self.numero_secuencia:
                     print("Mensaje repetido")
@@ -401,6 +409,7 @@ class SocketTCP:
                     resp = secuencia.to_bytes(4) + bytes([0, 0, 0])
                     print("Enviando confirmación repetida")
                     self.socket_udp.sendto(resp, self.direccion_destino)
+                    self.socket_udp.stop_timer()
                 # El mensaje no era para nosotros
                 else:
                     print("Header incorrecto")
@@ -579,11 +588,11 @@ class SocketTCP:
                 print("Mensaje recibido")
                 parsed_msg = self.parse_segment(msg)
 
-                if (not fin and self._receiving_go_back_n
+                if (not fin
                         and parsed_msg["Mensaje"]
                         and msg[4:7] == bytes([0, 0, 0])
                         and parsed_msg["N-Secuencia"] < self.numero_secuencia):
-                    response = self.numero_secuencia.to_bytes(4, "big") + bytes([1, 0, 0])
+                    response = self.numero_secuencia.to_bytes(4, "big") + bytes([int(self._receiving_go_back_n), 0, 0])
                     print("Mensaje repetido")
                     print("Enviando confirmación repetida")
                     self.socket_udp.sendto(response, self.direccion_destino)
