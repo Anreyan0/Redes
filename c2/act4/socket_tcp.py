@@ -207,7 +207,7 @@ class SocketTCP:
     def send_using_go_back_n(self, msg: bytes) -> None:
         message_length = len(msg).to_bytes(4, byteorder="big")
         # dividimos el mensaje en trozos de 16 bytes
-        data_list = [msg[i:(i+16)] for i in range(0, len(msg), 16)]
+        data_list = [msg[i:(i+8)] for i in range(0, len(msg), 8)]
         full_data_list = [message_length] + data_list
         full_length = len(full_data_list)
 
@@ -260,39 +260,36 @@ class SocketTCP:
                 parsed_answer = self.parse_segment(answer)
                 print(f"Recibido: {parsed_answer}\n")
                 
-                # El ACK debe confirmar el final de un segmento enviado.
                 if (parsed_answer["ACK"] == 1 and
                     parsed_answer["SYN"] == 0 and
                     parsed_answer["FIN"] == 0 and
-                    parsed_answer["N-Secuencia"] > self.numero_secuencia and
-                    parsed_answer["N-Secuencia"] in [data_to_send.get_sequence_number(wnd_index) + len(data_to_send.get_data(wnd_index)) for wnd_index in range(l)]):
+                    parsed_answer["N-Secuencia"] > self.numero_secuencia):
+
                     # El timer sigue activo mientras queden datos sin confirmar.
                     # movemos ventana por amount_of_moves movimientos
-                    # Contamos aparte el segmento inicial de 4 bytes.
                     extra = 1 if self.numero_secuencia == initial_seq else 0
                     print(f"num sec { self.numero_secuencia}, parsed answer {parsed_answer}")
-                    amount_of_moves = parsed_answer["N-Secuencia"] - self.numero_secuencia - len(message_length) * extra
-                    # Si queda un resto, también se confirmó el fragmento final.
-                    extra += 1 if amount_of_moves % (self.congestion_controler.MSS if self.congestion_control_on == True else 16) != 0 else 0
-                    amount_of_moves = amount_of_moves // (self.congestion_controler.MSS if self.congestion_control_on == True else 16) + extra
+                    # Restamos los 4 bytes de longitud si están incluidos en el ACK.
+                    amount_of_moves = (parsed_answer["N-Secuencia"] - self.numero_secuencia - len(message_length) * extra + 7) // 8 + extra
+
+                    while amount_of_moves > window_size:
+                        data_to_send.move_window(window_size)
+                        amount_of_moves -= window_size
+                        l = max(0, l - window_size)
+
                     print(f"Moviendo la ventana {amount_of_moves} pasos")
                     data_to_send.move_window(amount_of_moves)
 
                     # mandámos los paquetes que entraron a la ventana
-                    l -= amount_of_moves
+                    l = max(0, l - amount_of_moves)
                     current_data = data_to_send.get_data(l)
                     self.numero_secuencia = parsed_answer["N-Secuencia"]
 
                     if self.congestion_control_on == True:
                         self.congestion_controler.event_ack_received()
-                        window_size = max(int(self.congestion_controler.get_MSS_in_cwnd()), l)
+                        window_size = int(self.congestion_controler.get_MSS_in_cwnd())
                         data_to_send.update_window_size(window_size)
 
-                    # if current_data is not None:
-                    #     self.numero_secuencia = current_seq
-                    #     current_seq = data_to_send.get_sequence_number(7)
-                    #     current_segment = current_seq.to_bytes(4, byteorder="big") + bytes([0, 0, 0]) + current_data
-                    #     window_size = 0
 
             except socket.timeout:
                 # se envia toda la ventana de nuevo
@@ -302,7 +299,7 @@ class SocketTCP:
                 print("Timeout")
                 if self.congestion_control_on == True:
                     self.congestion_controler.event_timeout()
-                    window_size = max(int(self.congestion_controler.get_MSS_in_cwnd()), wnd_index)
+                    window_size = int(self.congestion_controler.get_MSS_in_cwnd())
                     data_to_send.update_window_size(window_size)
                 continue
 
