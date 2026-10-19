@@ -1,5 +1,6 @@
 # SERVER
 import socket_tcp
+import sys
 
 address = ("localhost", 5000)
 
@@ -89,6 +90,22 @@ if (complete_message) == "El viejo faro sobre el acantilado rocoso guiaba pacien
 else: 
     print("Test 7: Failed")
 
+# test 8
+if len(sys.argv) < 2:
+    print("El cliente no mandará el archivo natie.txt. El test 8 se ignora")
+else:
+    buff_size = 14
+    message = b''
+    i = 0
+    while i < 80:
+        message += connection_socketTCP.recv(buff_size, mode="go_back_n")
+        i += 1
+
+    print("Test 8 received:", message)
+    if (message) == "Nice Nature was born in 1988 at the Watanabe Ranch in Urakawa, Hokkaido. His sire, Nice Dancer, had six major wins in Canada, and his dam, Urakawa Miyuki, had three wins, including the 1984 open of what would become the Tulip Sho. Nice Nature's to-be owner Toyoshima Masao made a deposit at Watanabe Ranch. According to the owner of the ranch Watanabe Kazuma. Nice Nature was average as a foal, nor did he stand out in the training ranch. However, Watanabe vaguely alluded that he felt that Nice Nature might be just as good as Nice Nice Nice, also out of Nice Dancer and the winner of the 1989 Kisaragi Sho and 1990 Kyōto Kinen. Nice Nature's to-be trainer Matsunaga Yoshiharu quickly embraced the impression of a good horse, saying that he felt that things were moving in a good direction as he looked at Nice Nature's growth. After reaching the racing age of three years in 1990, Nice Nature transferred to the Ritto Training Center in Ritto, Shiga under Matsunaga. After Nice Nature's older sister suffered a career ending injury, Nice Nature was trained cautiously and debuted relatively late in December.".encode(): 
+        print("Test 8: Passed")
+    else: 
+        print("Test 8: Failed")
 
 print("Cerrando conexión")
 connection_socketTCP.recv_close()
