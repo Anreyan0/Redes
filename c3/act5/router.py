@@ -1,5 +1,6 @@
 import sys
 import socket
+# Realizar round robbin con un diccionario y listas circulares para leer las rutas realizadas en el main
 
 def parse_packet(IP_packet: bytes):
     dicc_parseo = dict()
@@ -39,6 +40,10 @@ if __name__ == "__main__":
     puerto = int(sys.argv[2])
     with open(sys.argv[3], "r") as f:
             rutas = f.read()
+
+    rutas_dict = {}
+    for ruta in rutas:
+        
     address = (ip, puerto)
     buff_size = 2048
 
