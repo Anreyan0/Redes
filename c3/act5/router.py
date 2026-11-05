@@ -59,7 +59,7 @@ if __name__ == "__main__":
     print("Esperando mensajes\n")
     
     while True:
-        recv_packet, address = router_socket.recvfrom(buff_size)
+        recv_packet, recv_address = router_socket.recvfrom(buff_size)
         parsed_packet = parse_packet(recv_packet)
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
