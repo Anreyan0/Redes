@@ -23,9 +23,10 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int]) ->
         ruta_elements = ruta.split(" ")
         puerto_inicial = int(ruta_elements[1])
         puerto_final = int(ruta_elements[2])
+        print(rutas_dict[(puerto_inicial, puerto_final)][0])
         if puerto_inicial <= destination_address[1] <= puerto_final:
             puntero = rutas_dict[(puerto_inicial, puerto_final)][1]
-            rutas_dict[(puerto_inicial, puerto_final)][1] = (rutas_dict[(puerto_inicial, puerto_final)][1] + 1) % len(rutas)
+            rutas_dict[(puerto_inicial, puerto_final)][1] = (rutas_dict[(puerto_inicial, puerto_final)][1] + 1) % len(rutas_dict[(puerto_inicial, puerto_final)][0])
             return rutas_dict[(puerto_inicial, puerto_final)][0][puntero]
 
     return None
@@ -43,14 +44,16 @@ if __name__ == "__main__":
             rutas = f.read()
 
     rutas_dict = {}
-    for ruta in rutas:
+    for ruta in rutas.split("\n"):
         ruta_elements = ruta.split(" ")
+        print(ruta_elements)
         puerto_inicial = int(ruta_elements[1])
         puerto_final = int(ruta_elements[2])
         if (puerto_inicial, puerto_final) in rutas_dict:
-            rutas_dict[(puerto_inicial, puerto_final)][0].append(ruta_elements[3:4])
+            rutas_dict[(puerto_inicial, puerto_final)][0].append((ruta_elements[3], int(ruta_elements[4])))
         else:
-            rutas_dict[(puerto_inicial, puerto_final)] = ([ruta_elements[3:4]], 0)
+            rutas_dict[(puerto_inicial, puerto_final)] = [[(ruta_elements[3], int(ruta_elements[4]))], 0]
+        print(f"dict: {rutas_dict}")
         
     address = (ip, puerto)
     buff_size = 2048
@@ -80,7 +83,9 @@ if __name__ == "__main__":
             print(f"Mensaje recibido: {parsed_packet["Mensaje"]}")
         else:
             forwarding_route = check_routes(sys.argv[3], destination_address)
+            print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
+                print(recv_packet, forwarding_route)
                 router_socket.sendto(recv_packet, forwarding_route)
                 print(f"Redirigiendo paquete {recv_packet} con destino final {destination_address} desde {address} hacia {forwarding_route}")
             else:
