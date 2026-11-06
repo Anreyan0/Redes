@@ -19,13 +19,14 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int]) ->
     with open(routes_file_name, "r") as f:
         rutas = f.read()
     rutas = rutas.split("\n")
-    
     for ruta in rutas:
         ruta_elements = ruta.split(" ")
         puerto_inicial = int(ruta_elements[1])
         puerto_final = int(ruta_elements[2])
         if puerto_inicial <= destination_address[1] <= puerto_final:
-            return (ruta_elements[3], int(ruta_elements[4]))
+            puntero = rutas_dict[(puerto_inicial, puerto_final)][1]
+            rutas_dict[(puerto_inicial, puerto_final)][1] = (rutas_dict[(puerto_inicial, puerto_final)][1] + 1) % len(rutas)
+            return rutas_dict[(puerto_inicial, puerto_final)][0][puntero]
 
     return None
 
@@ -43,6 +44,13 @@ if __name__ == "__main__":
 
     rutas_dict = {}
     for ruta in rutas:
+        ruta_elements = ruta.split(" ")
+        puerto_inicial = int(ruta_elements[1])
+        puerto_final = int(ruta_elements[2])
+        if (puerto_inicial, puerto_final) in rutas_dict:
+            rutas_dict[(puerto_inicial, puerto_final)][0].append(ruta_elements[3:4])
+        else:
+            rutas_dict[(puerto_inicial, puerto_final)] = ([ruta_elements[3:4]], 0)
         
     address = (ip, puerto)
     buff_size = 2048
