@@ -6,14 +6,16 @@ def parse_packet(IP_packet: bytes):
     dicc_parseo = dict()
     dicc_parseo["IP"] = socket.inet_ntoa(IP_packet[:4])
     dicc_parseo["Puerto"] = int.from_bytes(IP_packet[4:6], byteorder='big')
-    dicc_parseo["Mensaje"] = IP_packet[6:]
+    dicc_parseo["TTL"] = IP_packet[6]
+    dicc_parseo["Mensaje"] = IP_packet[7:]
     return dicc_parseo
 
 def create_packet(parsed_IP_packet):
     ipv4 = socket.inet_aton(parsed_IP_packet["IP"])
     puerto = parsed_IP_packet["Puerto"].to_bytes(2)
+    ttl = (parsed_IP_packet["TTL"] - 1).to_bytes(1)
     msg = parsed_IP_packet["Mensaje"]
-    return ipv4 + puerto + msg
+    return ipv4 + puerto + ttl + msg
 
 def check_routes(routes_file_name: str, destination_address: tuple[str, int]) -> tuple[str, int]:
     with open(routes_file_name, "r") as f:
@@ -30,6 +32,8 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int]) ->
             return rutas_dict[(puerto_inicial, puerto_final)][0][puntero]
 
     return None
+
+def reduce_ttl(parsed_packet):
 
 if __name__ == "__main__":
 
@@ -79,6 +83,10 @@ if __name__ == "__main__":
         parsed_packet = parse_packet(recv_packet)
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
+        if parsed_packet["TTL"] == 0:
+            print("Se recibió paquete [paquete_ip] con TTL 0")
+            continue
+
         if address == destination_address:
             print(f"Mensaje recibido: {parsed_packet["Mensaje"]}")
         else:
@@ -86,7 +94,7 @@ if __name__ == "__main__":
             print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
                 print(recv_packet, forwarding_route)
-                router_socket.sendto(recv_packet, forwarding_route)
-                print(f"Redirigiendo paquete {recv_packet} con destino final {destination_address} desde {address} hacia {forwarding_route}")
+                router_socket.sendto(create_packet(parsed_packet), forwarding_route)
+                print(f"Redirigiendo paquete {create_packet(parsed_packet)} con destino final {destination_address} desde {address} hacia {forwarding_route}")
             else:
                 print(f"No hay rutas hacia {destination_address} para paquete {parsed_packet}")
