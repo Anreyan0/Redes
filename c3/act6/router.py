@@ -7,15 +7,23 @@ def parse_packet(IP_packet: bytes):
     dicc_parseo["IP"] = socket.inet_ntoa(IP_packet[:4])
     dicc_parseo["Puerto"] = int.from_bytes(IP_packet[4:6], byteorder='big')
     dicc_parseo["TTL"] = IP_packet[6]
-    dicc_parseo["Mensaje"] = IP_packet[7:]
+    dicc_parseo["ID"] = IP_packet[7]
+    dicc_parseo["Offset"] = int.from_bytes(IP_packet[8:12], byteorder='big')
+    dicc_parseo["Tamaño"] = int.from_bytes(IP_packet[12:16], byteorder='big')
+    dicc_parseo["FLAG"] = IP_packet[16]
+    dicc_parseo["Mensaje"] = IP_packet[17:]
     return dicc_parseo
 
 def create_packet(parsed_IP_packet):
     ipv4 = socket.inet_aton(parsed_IP_packet["IP"])
     puerto = parsed_IP_packet["Puerto"].to_bytes(2)
-    ttl = (parsed_IP_packet["TTL"] - 1).to_bytes(1)
+    ttl = (parsed_IP_packet["TTL"]).to_bytes(1)
+    id = parsed_IP_packet["ID"].to_bytes(1)
+    offset = parsed_IP_packet["Offset"].to_bytes(4)
+    tamaño = parsed_IP_packet["Tamaño"].to_bytes(4)
+    flag = parsed_IP_packet["FLAG"].to_bytes(1)
     msg = parsed_IP_packet["Mensaje"]
-    return ipv4 + puerto + ttl + msg
+    return ipv4 + puerto + ttl + id + offset + tamaño + flag + msg
 
 def check_routes(routes_file_name: str, destination_address: tuple[str, int]) -> tuple[str, int]:
     with open(routes_file_name, "r") as f:
@@ -29,7 +37,10 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int]) ->
         if puerto_inicial <= destination_address[1] <= puerto_final:
             puntero = rutas_dict[(puerto_inicial, puerto_final)][1]
             rutas_dict[(puerto_inicial, puerto_final)][1] = (rutas_dict[(puerto_inicial, puerto_final)][1] + 1) % len(rutas_dict[(puerto_inicial, puerto_final)][0])
-            return rutas_dict[(puerto_inicial, puerto_final)][0][puntero]
+            next_hop_address = (rutas_dict[(puerto_inicial, puerto_final)][0][puntero][0],
+                                rutas_dict[(puerto_inicial, puerto_final)][0][puntero][1])
+            MTU = rutas_dict[(puerto_inicial, puerto_final)][0][puntero][2]
+            return (next_hop_address, MTU)
 
     return None
 
@@ -51,10 +62,11 @@ if __name__ == "__main__":
         print(ruta_elements)
         puerto_inicial = int(ruta_elements[1])
         puerto_final = int(ruta_elements[2])
+        MTU = int(ruta_elements[5])
         if (puerto_inicial, puerto_final) in rutas_dict:
-            rutas_dict[(puerto_inicial, puerto_final)][0].append((ruta_elements[3], int(ruta_elements[4])))
+            rutas_dict[(puerto_inicial, puerto_final)][0].append((ruta_elements[3], int(ruta_elements[4]), MTU))
         else:
-            rutas_dict[(puerto_inicial, puerto_final)] = [[(ruta_elements[3], int(ruta_elements[4]))], 0]
+            rutas_dict[(puerto_inicial, puerto_final)] = [[(ruta_elements[3], int(ruta_elements[4]), MTU)], 0]
         print(f"dict: {rutas_dict}")
         
     address = (ip, puerto)
@@ -88,10 +100,13 @@ if __name__ == "__main__":
         if address == destination_address:
             print(f"Mensaje recibido: {parsed_packet["Mensaje"]}")
         else:
-            forwarding_route = check_routes(sys.argv[3], destination_address)
+            forwarding_route_and_MTU = check_routes(sys.argv[3], destination_address)
+            forwarding_route = forwarding_route_and_MTU[0]
+            MTU = forwarding_route_and_MTU[1]
             print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
                 print(parsed_packet, forwarding_route)
+                parsed_packet["TTL"] -= 1
                 router_socket.sendto(create_packet(parsed_packet), forwarding_route)
                 print(f"Redirigiendo paquete {create_packet(parsed_packet)} con destino final {destination_address} desde {address} hacia {forwarding_route}\n")
             else:
