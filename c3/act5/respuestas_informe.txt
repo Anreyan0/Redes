@@ -1,0 +1,14 @@
+Pruebas Mini-Internet sin TTL (Informe 1pto):
+
+1. Ocurre que el paquete salta entre R1 Y R2 infinitamente
+
+2. Los paquetes saltan entre 3 y 7 veces, dependiendo del estado del Round Robin de los routers. No siempre da la misma cantidad de saltos por lo mismo, y la mayoría de veces da más saltos que la cantidad mínima esperada (3 saltos).
+
+3. Da entre 3 y 10 saltos.
+
+
+Pruebas Mini-Internet con TTL (Informe 1 pto):
+
+1. Se observa que con el TTL, los paquetes ya no entran en un bucle infinito de saltos R1 <---> R2 por mucho tiempo. No es para nada notable.
+
+2. Con un archivo de 11 líneas como lo es natie.txt, se observa que todos los paquetes llegan eventualmente desde R1 a R5 sin pérdidas. Sin embargo, estos llegan desordenados dependiendo del estado del Round Robin de los routers, ya que algunos paquetes pueden llegar antes que otros que ya están dando saltos en el mini-internet.

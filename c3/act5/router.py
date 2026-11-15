@@ -33,8 +33,6 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int]) ->
 
     return None
 
-def reduce_ttl(parsed_packet):
-
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
@@ -93,8 +91,8 @@ if __name__ == "__main__":
             forwarding_route = check_routes(sys.argv[3], destination_address)
             print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
-                print(recv_packet, forwarding_route)
+                print(parsed_packet, forwarding_route)
                 router_socket.sendto(create_packet(parsed_packet), forwarding_route)
-                print(f"Redirigiendo paquete {create_packet(parsed_packet)} con destino final {destination_address} desde {address} hacia {forwarding_route}")
+                print(f"Redirigiendo paquete {create_packet(parsed_packet)} con destino final {destination_address} desde {address} hacia {forwarding_route}\n")
             else:
-                print(f"No hay rutas hacia {destination_address} para paquete {parsed_packet}")
+                print(f"No hay rutas hacia {destination_address} para paquete {parsed_packet}\n")
