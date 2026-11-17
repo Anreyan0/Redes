@@ -17,9 +17,9 @@ if __name__ == "__main__":
     send_address = (sys.argv[4], int(sys.argv[5]))
     ttl = int(sys.argv[6])
     id = random.randint(0, 255)
-    offset = 80
-    tamaño = 100
-    flag = 1
+    offset = 0
+    tamaño = len(message)
+    flag = 0
 
     ip_packet = socket.inet_aton(final_ip) + final_puerto.to_bytes(2) + ttl.to_bytes(1) + id.to_bytes(1) + offset.to_bytes(4) + tamaño.to_bytes(4) + flag.to_bytes(1) + message
 

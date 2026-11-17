@@ -56,12 +56,12 @@ def fragment_IP_packet(IP_packet, MTU):
         msg_fragments = [parsed_ip_packet["Mensaje"][i:(i+msg_MTU)] for i in range(0, msg_size, msg_MTU)]
         number_of_fragments = len(msg_fragments)
         current_fragment = 0
-        offset = 0
+        offset = parsed_ip_packet["Offset"]
         flag = 1
         ip_fragments = []
         for fragment in msg_fragments:
             current_fragment += 1
-            if current_fragment == number_of_fragments:
+            if (current_fragment == number_of_fragments) and (parsed_ip_packet["FLAG"] == 0):
                 flag = 0
 
             fragment_ip = socket.inet_aton(parsed_ip_packet["IP"])
@@ -186,7 +186,7 @@ if __name__ == "__main__":
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
         if parsed_packet["TTL"] == 0:
-            print("Se recibió paquete [paquete_ip] con TTL 0")
+            print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} con TTL 0")
             continue
 
         if address == destination_address:
@@ -205,16 +205,18 @@ if __name__ == "__main__":
                 print(f"Aún no llega el mensaje completo de ID = {parsed_packet["ID"]}")
             
         else:
+            print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} para otro router")
             forwarding_route_and_MTU = check_routes(sys.argv[3], destination_address)
             forwarding_route = forwarding_route_and_MTU[0]
             print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
                 MTU = forwarding_route_and_MTU[1]
+                parsed_packet["TTL"] -= 1
 
-                fragments = fragment_IP_packet(recv_packet, MTU)
+                fragments = fragment_IP_packet(create_packet(parsed_packet), MTU)
                 print(f"Número de fragmentos a enviar: {len(fragments)}")
                 for ip_fragment in fragments:
                     router_socket.sendto(ip_fragment, forwarding_route)
-                    print(f"Redirigiendo fragmento {ip_fragment} con destino final {destination_address} desde {address} hacia {forwarding_route}\n")
+                    print(f"Redirigiendo fragmento {parse_packet(ip_fragment)} con destino final {destination_address} desde {address} hacia {forwarding_route}\n")
             else:
                 print(f"No hay rutas hacia {destination_address} para paquete {parsed_packet}\n")
