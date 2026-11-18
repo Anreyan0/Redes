@@ -185,12 +185,11 @@ if __name__ == "__main__":
         parsed_packet = parse_packet(recv_packet)
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
-        if parsed_packet["TTL"] == 0:
-            print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} con TTL 0")
-            continue
-
         if address == destination_address:
-
+            if parsed_packet["TTL"] == 0:
+                print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} con TTL 0")
+                continue
+            
             id_str = str(parsed_packet["ID"])
             print(f"Se recibió un paquete de ID = {parsed_packet["ID"]}")
             if id_str in fragments_dict:
