@@ -185,12 +185,7 @@ if __name__ == "__main__":
         parsed_packet = parse_packet(recv_packet)
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
-        if parsed_packet["TTL"] == 0:
-            print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} con TTL 0")
-            continue
-
         if address == destination_address:
-
             id_str = str(parsed_packet["ID"])
             print(f"Se recibió un paquete de ID = {parsed_packet["ID"]}")
             if id_str in fragments_dict:
@@ -205,6 +200,10 @@ if __name__ == "__main__":
                 print(f"Aún no llega el mensaje completo de ID = {parsed_packet["ID"]}")
             
         else:
+            if parsed_packet["TTL"] == 0:
+                print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} con TTL 0")
+                continue
+
             print(f"Se recibió un paquete de ID = {parsed_packet["ID"]} para otro router")
             forwarding_route_and_MTU = check_routes(sys.argv[3], destination_address)
             forwarding_route = forwarding_route_and_MTU[0]
