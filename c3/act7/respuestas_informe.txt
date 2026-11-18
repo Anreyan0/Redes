@@ -1,1 +1,64 @@
 Respuestas para el informe de la actividad de BGP
+
+1. Nombre de grupo: mikured
+
+2. A la hora de implementar el ejemplo "Configurando rutas con Einar", y luego de indicar
+cuantos routers, PCs y switches tendrá nuestra red, sentimos que el proceso de configurar
+manualmente las conexiones de los routers y PCs fue más o menos tedioso. Ya que había que
+tener cuidado de no poner ninguna dirección ip erronea para que funcionara todo bien, y
+considerando que una vez creado e iniciado un lab, era necesario reiniciar la VM para volver
+a hacer otro lab.
+
+Una vez creado, se hace ping a distintas direcciones desde nuestros routers y PCs, lo cual
+no generó ninguna complicación. Aquí vemos que todos los ping realizados funcionan, excepto
+el de PC1_mikured a PC2_mikured.
+*captura ping falla de PC1_mikured a PC2_mikured*
+Esto ocurre porque R1_mikured y R2_mikured solo conocen a sus vecinos, y no saben llegar a
+la PC fuera de su vecindad.
+Se procede entonces a añadir manualmente rutas en la tabla de rutas de ambos routers. Nos
+pareció interesante el hecho de que se pueda configurar manualmente el routing de un router
+de esta manera, ya que uno tiene control de donde puede pasar paquetes, y de cuanto se
+expande el conocimiento del router en si. Sin embargo, puede ser tedioso si hay un individuo
+dedicándose a configurar tablas de ruta manualmente, y tiene que añadir o quitar muchas.
+*Captura de la configuración manual de R1*
+*Captura de la configuración manual de R2*
+Aparte, cabe mencionar que la Figura 1 incluida en el ejemplo sirvió para entender el routeo
+manual que estamos haciendo, y a que dirección hay que saltar para que el paquete llegue a cierto
+conjunto de direcciones, según el router que estamos configurando.
+
+Ahora vemos que el ping de PC1_mikured a PC2_mikured funciona correctamente, debido al ingreso
+manual de las rutas de R1_mikured y R2_mikured, haciendo que toda la red esté finalmente conectada.
+*Captura de que el ping de PC1 a PC2 funciona*
+
+3. Al crear el mismo laboratorio y echarlo a correr, inmediatamente hay que configurar los routers
+para indicar que estos son de tipo BGP con cierto ASN, que pertenecen a cierta red, y que tiene un
+router vecino alcanzable. Nos pareció interesante configurar los routers de esta manera, y es mucho
+más cómodo que andar colocando manualmente las rutas en la tabla.
+Luego, vemos que el ping de PC1_mikured a PC2_mikured funciona correctamente debido a este cambio.
+*Captura de que el ping de PC1 a PC2 funciona con BGP*
+
+Se procede a reiniciar R1_mikured y que informe sus rutas salientes a R2_mikured, para luego verificar
+cuáles son las rutas que publicita R2_mikured
+*Captura con cuales rutas publicita R2*
+Modificamos el R1_mikured para agregar el prefijo 192.168.100.0/24, que combinado hace que R2_mikured
+sepa de la existencia de la red 192.168.100.0. El proceso nos parece algo engorroso de entender, ya
+que consideramos que en el ejemplo, no es muy detallado el por qué esta serie de comandos efectivamente
+logra que R2_mikured sepa de la existencia de esta nueva red.
+
+Si R1_mikured no quiere que el otro router sepa de esta red, se aplican filtros para que solo sepa de
+la red 192.168.1.0/24
+*Captura de como se aplica el filtro*
+Como se aprecia en la captura, ahora solo se tiene permitida la red 192.168.1.0/24.
+En otro caso donde R2_mikured añade una red pero R1_mikured no permite su utilización, se añade
+192.168.200.0/24 como se muestra en la captura anterior.
+Ahora, R1_mikured denega aquellos prefijos en 192.168.200.0/24 que entran al router. Finalmente, estos
+hace que R1_mikured no vea la red 192.168.200.0/24 a pesar de que sí está siendo publicitada de parte de
+R2_mikured.
+En esta parte no fue complicado seguir los pasos, sino entender el por qué ocurre lo mostrado en el
+ejemplo. Nos tomó leer el enunciado muchas veces para entender bien qué pasaba, y leer más veces la
+sección anterior "Como configurar BGP", sobretodo para entender como usar una lista de prefijos.
+
+4.
+------------- Configuración de Red -------------
+Para el lab de la actividad se necesitan 5 routers, 6 switches y 3 computadores virtuales, con una
+interfaz para cada PC, 2 interfaces para 4 de los 5 routers, y 3 interfaces para el router R0_mikured.
