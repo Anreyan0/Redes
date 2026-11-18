@@ -81,13 +81,12 @@ if __name__ == "__main__":
         parsed_packet = parse_packet(recv_packet)
         destination_address = (parsed_packet["IP"], parsed_packet["Puerto"])
 
-        if parsed_packet["TTL"] == 0:
-            print("Se recibió paquete [paquete_ip] con TTL 0")
-            continue
-
         if address == destination_address:
             print(f"Mensaje recibido: {parsed_packet["Mensaje"]}")
         else:
+            if parsed_packet["TTL"] == 0:
+                print("Se recibió paquete [paquete_ip] con TTL 0")
+                continue
             forwarding_route = check_routes(sys.argv[3], destination_address)
             print(f"forwarding route {forwarding_route}")
             if forwarding_route is not None:
